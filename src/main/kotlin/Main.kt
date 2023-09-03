@@ -470,7 +470,7 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
                 .withUserId(looser.user.id)
                 .withDuration(600)
                 .withReason("duel with ${winner.user.name}")
-        )
+        ).execute()
     } catch (e: Throwable) {
         println("Duel: clean duel 7")
         duelFirstUserMessage = null
