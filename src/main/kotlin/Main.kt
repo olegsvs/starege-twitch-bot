@@ -1,3 +1,5 @@
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.github.philippheuer.credentialmanager.domain.OAuth2Credential
 import com.github.philippheuer.events4j.simple.SimpleEventHandler
 import com.github.twitch4j.TwitchClient
@@ -32,30 +34,41 @@ val dotenv = Dotenv.load()
 
 //  TODO(@olegsvs): fix chars, WTF
 val dodoPromo = dotenv.get("DODO_PROMO").replace("'", "")
+const val rewardDodoTitle = "Промокод на ДОДО пиццу за 1р (ТОЛЬКО РФ)"
+var rewardDodoID: String? = null
+
 val staregeBotAccessToken = dotenv.get("SENTRY_OAUTH_TOKEN").replace("'", "")
-val staregeBotRefreshToken = dotenv.get("SENTRY_REFRESH_TOKEN").replace("'", "")
-val staregeBotTokenExpiresInSeconds = dotenv.get("SENTRY_EXPIRES_IN").replace("'", "")
+//val staregeBotRefreshToken = dotenv.get("SENTRY_REFRESH_TOKEN").replace("'", "")
+//val staregeBotTokenExpiresInSeconds = dotenv.get("SENTRY_EXPIRES_IN").replace("'", "")
+
 val twitchChannelAccessToken = dotenv.get("CHANNEL_OAUTH_TOKEN").replace("'", "")
-val twitchChannelRefreshToken = dotenv.get("CHANNEL_REFRESH_TOKEN").replace("'", "")
-val twitchChannelTokenExpiresInSeconds = dotenv.get("CHANNEL_EXPIRES_IN").replace("'", "")
-val tokensGeneratedTimeMillis = System.currentTimeMillis() / 1000
+//val twitchChannelRefreshToken = dotenv.get("CHANNEL_REFRESH_TOKEN").replace("'", "")
+//val twitchChannelTokenExpiresInSeconds = dotenv.get("CHANNEL_EXPIRES_IN").replace("'", "")
+
+//val tokensGeneratedTimeMillis = System.currentTimeMillis() / 1000
 const val testDefaultRefreshRateTokensTimeMillis: Long = 10800 * 1000 // 3h
+
 val staregeBotOAuth2Credential = OAuth2Credential("twitch", staregeBotAccessToken)
 val twitchChannelOAuth2Credential = OAuth2Credential("twitch", twitchChannelAccessToken)
+
 val youtubeApiKey = dotenv.get("YOUTUBE_API_KEY").replace("'", "")
 val youtubeChannelKey = dotenv.get("YOUTUBE_CHANNEL_KEY").replace("'", "")
+val youtubeCommandTriggers = listOf("!yt", "!ютуб", "!youtube")
+
 val broadcasterId = dotenv.get("BROADCASTER_ID").replace("'", "")
+val moderatorId = dotenv.get("MODERATOR_ID").replace("'", "")
+
 val twitchClientId = dotenv.get("TWITCH_CLIENT_ID").replace("'", "")
 val twitchClientSecret = dotenv.get("TWITCH_CLIENT_SECRET").replace("'", "")
-val moderatorId = dotenv.get("MODERATOR_ID").replace("'", "")
-val rewardDodoTitle = "Промокод на ДОДО пиццу за 1р (ТОЛЬКО РФ)"
-var rewardDodoID: String? = null
-val youtubeCommandTriggers = listOf("!yt", "!ютуб", "!youtube")
+
 val helixClient: TwitchHelix = TwitchHelixBuilder.builder()
     .withClientId(twitchClientId)
     .withClientSecret(twitchClientSecret)
-    .withLogLevel(feign.Logger.Level.FULL)
+    .withLogLevel(feign.Logger.Level.BASIC)
     .build()
+
+val logger: Logger = LoggerFactory.getLogger("bot")
+
 val twitchClient: TwitchClient = TwitchClientBuilder.builder()
     .withEnableChat(true)
     .withChatAccount(staregeBotOAuth2Credential)
@@ -63,9 +76,10 @@ val twitchClient: TwitchClient = TwitchClientBuilder.builder()
     .withEnablePubSub(true)
     .withClientId(twitchClientId)
     .withClientSecret(twitchClientSecret)
-    .withFeignLogLevel(feign.Logger.Level.FULL)
+    .withFeignLogLevel(feign.Logger.Level.BASIC)
     .withDefaultEventHandler(SimpleEventHandler::class.java)
     .build()
+
 val httpClient = HttpClient(CIO) {
     expectSuccess = true
     install(Logging)
@@ -80,6 +94,7 @@ val httpClient = HttpClient(CIO) {
 
 @OptIn(DelicateCoroutinesApi::class)
 fun main(args: Array<String>) {
+    logger.info("Bot started")
     Timer().scheduleAtFixedRate(object : TimerTask() {
         override fun run() {
             refreshTokensTask()
@@ -186,7 +201,7 @@ fun main(args: Array<String>) {
 }
 
 fun refreshTokensTask() {
-    println("refreshTokensTask start")
+    logger.info("refreshTokensTask start")
     val processBuilder = ProcessBuilder()
     processBuilder.command("bash", "-c", "cd /home/bot/twitch_bot/ && . jrestart.sh")
     try {
@@ -199,28 +214,29 @@ fun refreshTokensTask() {
             ).execute()
         }
         processBuilder.start()
-        println("refreshTokensTask process called")
+        logger.info("refreshTokensTask process called")
     } catch (e: Throwable) {
-        println("Failed call restart script: $e")
+        logger.error("Failed call restart script:", e)
     }
 }
 
 fun sendEmail(message: String) {
-    println("sendEmail start")
+    logger.info("sendEmail start")
     val processBuilder = ProcessBuilder()
     // os.system('echo "'+ em_message +'" | mail -s "TwitchBot" oleg.texet@gmail.com')
     processBuilder.command("bash", "-c", "echo $message | mail -s 'TwitchBot' oleg.texet@gmail.com")
     try {
         processBuilder.start()
-        println("sendEmail process called")
+        logger.info("sendEmail process called")
     } catch (e: Throwable) {
-        println("Failed call restart script: $e")
+        logger.error("Failed call restart script: ", e)
     }
 }
 
 private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
     try {
         if (rewardRedeemedEvent.redemption.reward.id.equals(rewardDodoID)) {
+            logger.info("onRewardRedeemed, title:: ${rewardRedeemedEvent.redemption.reward.title}")
             val user = rewardRedeemedEvent.redemption.user
             helixClient.sendWhisper(
                 staregeBotOAuth2Credential.accessToken,
@@ -245,7 +261,7 @@ private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
             ).execute()
         }
     } catch (e: Throwable) {
-        println("Failed onRewardRedeemed: $e")
+        logger.error("Failed onRewardRedeemed: ", e)
         helixClient.updateRedemptionStatus(
             twitchChannelOAuth2Credential.accessToken,
             broadcasterId, rewardDodoID, listOf(rewardRedeemedEvent.redemption.id), RedemptionStatus.CANCELED
@@ -258,6 +274,7 @@ private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
 }
 
 private fun onPredictionCreatedEvent(predictionCreatedEvent: PredictionCreatedEvent) {
+    logger.info("onPredictionCreatedEvent")
     helixClient.sendChatAnnouncement(
         staregeBotOAuth2Credential.accessToken,
         broadcasterId,
@@ -269,6 +286,7 @@ private fun onPredictionCreatedEvent(predictionCreatedEvent: PredictionCreatedEv
 
 private fun onPredictionUpdatedEvent(predictionUpdatedEvent: PredictionUpdatedEvent) {
     if (predictionUpdatedEvent.event.status.equals("RESOLVED")) {
+        logger.info("onPrediction RESOLVED Event")
         val win: PredictionOutcome =
             predictionUpdatedEvent.event.outcomes.first { it.id.equals(predictionUpdatedEvent.event.winningOutcomeId) }
         when (win.color.name) {
@@ -294,8 +312,8 @@ private fun onPredictionUpdatedEvent(predictionUpdatedEvent: PredictionUpdatedEv
 
 private fun changeTitle(event: ChannelMessageEvent, newTitle: String) {
     try {
-        println(event.permissions)
         if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
+            logger.info("changeTitle request")
             if (newTitle.isEmpty()) {
                 event.reply(twitchClient.chat, "DinkDonk Укажите текст")
                 return
@@ -308,13 +326,14 @@ private fun changeTitle(event: ChannelMessageEvent, newTitle: String) {
             event.reply(twitchClient.chat, "Название изменено на $newTitle")
         }
     } catch (e: Throwable) {
-        println("Failed changeTitle: $e")
+        logger.error("Failed changeTitle: ", e)
     }
 }
 
 private fun changeCategory(event: ChannelMessageEvent, newCategory: String) {
     try {
         if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
+            logger.info("changeCategory request")
             if (newCategory.isEmpty()) {
                 event.reply(twitchClient.chat, "DinkDonk Укажите название категории")
                 return
@@ -326,7 +345,6 @@ private fun changeCategory(event: ChannelMessageEvent, newCategory: String) {
                 event.reply(twitchClient.chat, "Категория $newCategory не найдена Sadge")
 
             } else {
-                println(response.games)
                 val game = response.games[0]
                 helixClient.updateChannelInformation(
                     twitchChannelOAuth2Credential.accessToken,
@@ -337,19 +355,19 @@ private fun changeCategory(event: ChannelMessageEvent, newCategory: String) {
             }
         }
     } catch (e: Throwable) {
-        println("Failed changeCategory: $e")
+        logger.error("Failed changeCategory: ", e)
     }
 }
 
 private fun pingCommand(event: ChannelMessageEvent) {
-    println("pingCommand")
+    logger.info("pingCommand")
     try {
         event.reply(
             twitchClient.chat,
             "Starege pong, доступные команды: ${getEnabledCommands()}. For PETTHEMODS : !title, !sgame - change title/category"
         )
     } catch (e: Throwable) {
-        println("Failed pingCommand: $e")
+        logger.error("Failed pingCommand: ", e)
     }
 }
 
@@ -359,7 +377,7 @@ private fun getEnabledCommands(): String {
 
 var lastYoutubeCommand: Long? = null
 private suspend fun getLastYoutubeHighlight(event: ChannelMessageEvent) {
-    println("getLastYoutubeHighlight")
+    logger.info("getLastYoutubeHighlight")
     try {
         if (lastYoutubeCommand != null) {
             val diff = System.currentTimeMillis() - lastYoutubeCommand!!
@@ -370,7 +388,7 @@ private suspend fun getLastYoutubeHighlight(event: ChannelMessageEvent) {
             httpClient.request("https://www.googleapis.com/youtube/v3/channels?id=${youtubeChannelKey}&key=${youtubeApiKey}&part=contentDetails")
                 .body()
         val playListID = playlists.items[0].contentDetails.relatedPlaylists.uploads
-        println("youtube playListID: ${playListID}")
+        logger.info("youtube playListID: $playListID")
         val videosInPlayList: YoutubeVideosResponse =
             httpClient.request("https://www.googleapis.com/youtube/v3/playlistItems?playlistId=${playListID}&key=${youtubeApiKey}&part=snippet&maxResults=20")
                 .body()
@@ -387,7 +405,7 @@ private suspend fun getLastYoutubeHighlight(event: ChannelMessageEvent) {
                 "Подписывайся на ютуб - https://goo.su/W5UDBz ! Ежедневно новые шортсы и очень часто новые хайлайты. Последний хайлайт - $title $videoUrl"
             event.reply(twitchClient.chat, finalText)
         } else {
-            println("getLastYoutubeHighlight: video not found")
+            logger.info("getLastYoutubeHighlight: video not found")
             event.reply(
                 twitchClient.chat,
                 "Подписывайся на ютуб - https://goo.su/W5UDBz ! Ежедневно новые шортсы и очень часто новые хайлайты."
@@ -395,7 +413,7 @@ private suspend fun getLastYoutubeHighlight(event: ChannelMessageEvent) {
         }
 
     } catch (e: Throwable) {
-        println("Failed getLastYoutubeHighlight: $e")
+        logger.error("Failed getLastYoutubeHighlight: ", e)
         event.reply(
             twitchClient.chat,
             "Подписывайся на ютуб - https://goo.su/W5UDBz ! Ежедневно новые шортсы и очень часто новые хайлайты."
@@ -408,7 +426,7 @@ var duelFirstUserMessage: ChannelMessageEvent? = null
 var duelSecondUserMessage: ChannelMessageEvent? = null
 var lastDuel: Long? = System.currentTimeMillis()
 private suspend fun startDuelCommand(event: ChannelMessageEvent) {
-    println("duel request")
+    logger.info("duel request")
     try {
         if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
             event.reply(
@@ -420,7 +438,7 @@ private suspend fun startDuelCommand(event: ChannelMessageEvent) {
 
         if (duelIsStarted) {
             assignDuelCommand(event)
-            println("Duel: another duel already started")
+            logger.info("Duel: another duel already started")
             return
         }
 
@@ -435,7 +453,7 @@ private suspend fun startDuelCommand(event: ChannelMessageEvent) {
                     twitchClient.chat,
                     "Ринг отмывают, осталось \uD83D\uDD5B ${nextRollMinutes}m${nextRollSeconds}s Modge"
                 )
-                println("Duel: diff")
+                logger.info("Duel: diff")
                 return
             }
         }
@@ -445,23 +463,23 @@ private suspend fun startDuelCommand(event: ChannelMessageEvent) {
             twitchClient.chat,
             "@${event.user.name} ищет смельчака на бой, проигравшему - мут на 10 минут, напиши !gof, чтобы принять вызов(ожидание - 1 минута)"
         )
-        println("Duel: wait another user")
+        logger.info("Duel: wait another user")
         delay(Duration.ofMinutes(1).toMillis())
-        println("Duel: clean duel 1")
+        logger.info("Duel: clean duel 1")
         duelFirstUserMessage = null
         duelSecondUserMessage = null
         duelIsStarted = false
     } catch (e: Throwable) {
-        println("Duel: clean duel 2")
+        logger.info("Duel: clean duel 2")
         duelFirstUserMessage = null
         duelSecondUserMessage = null
         duelIsStarted = false
-        println("Failed fightCommand: $e")
+        logger.error("Failed fightCommand: ", e)
     }
 }
 
 private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
-    println("duel assign request")
+    logger.info("duel assign request")
     try {
         if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
             event.reply(
@@ -512,7 +530,7 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
             twitchClient.chat,
             "${winner.user.name}  EZ победил в поединке против forsenLaughingAtYou ${looser.user.name} и отправил его отдыхать на 10 минут SadgeCry"
         )
-        println("Duel: clean duel 6")
+        logger.info("Duel: clean duel 6")
         duelFirstUserMessage = null
         duelSecondUserMessage = null
         duelIsStarted = false
@@ -527,11 +545,11 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
                 .withReason("duel with ${winner.user.name}")
         ).execute()
     } catch (e: Throwable) {
-        println("Duel: clean duel 7")
+        logger.info("Duel: clean duel 7")
         duelFirstUserMessage = null
         duelSecondUserMessage = null
         duelIsStarted = false
-        println("Failed assignDuel: $e")
+        logger.error("Failed assignDuel: ", e)
     }
 }
 

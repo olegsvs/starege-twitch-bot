@@ -2,7 +2,7 @@
 
 <configuration scan="true">
     <!-- Configure Twitch4J logger level -->
-    <logger name="com.github.twitch4j" level="DEBUG"/>
+    <logger name="com.github.twitch4j" level="INFO"/>
 
     <!-- Appender Configuration [Console] -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
@@ -12,17 +12,12 @@
     </appender>
 
     <!-- Appender Configuration [File] -->
-    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <timestamp key="timestamp" datePattern="yyyyMMdd"/>
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${application.home:-.}/logs/log_${timestamp}.log</file>
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%date [%level] - %message%n%xException</pattern>
         </encoder>
-        <file>client.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
-            <fileNamePattern>client.%i.log</fileNamePattern>
-        </rollingPolicy>
-        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
-            <MaxFileSize>10MB</MaxFileSize>
-        </triggeringPolicy>
     </appender>
 
     <!-- Appender Output Configuration -->
