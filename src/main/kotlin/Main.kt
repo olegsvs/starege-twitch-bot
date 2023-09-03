@@ -28,6 +28,7 @@ import kotlinx.serialization.json.Json
 import java.time.Duration
 
 val dotenv = Dotenv.load()
+
 //  TODO(@olegsvs) fix chars, WTF
 val dodoPromo = dotenv.get("DODO_PROMO").replace("'", "")
 val staregeBotAccessToken = dotenv.get("SENTRY_OAUTH_TOKEN").replace("'", "")
@@ -37,8 +38,8 @@ val twitchChannelOAuth2Credential = OAuth2Credential("twitch", twitchChannelAcce
 val youtubeApiKey = dotenv.get("YOUTUBE_API_KEY").replace("'", "")
 val youtubeChannelKey = dotenv.get("YOUTUBE_CHANNEL_KEY").replace("'", "")
 val broadcasterId = dotenv.get("BROADCASTER_ID").replace("'", "")
-val twitchClientId = dotenv.get("MODERATOR_ID").replace("'", "")
-val twitchClientSecret = dotenv.get("MODERATOR_ID").replace("'", "")
+val twitchClientId = dotenv.get("TWITCH_CLIENT_ID").replace("'", "")
+val twitchClientSecret = dotenv.get("TWITCH_CLIENT_SECRET").replace("'", "")
 val moderatorId = dotenv.get("MODERATOR_ID").replace("'", "")
 val rewardDodoTitle = "Промокод на ДОДО пиццу за 1р (ТОЛЬКО РФ)"
 var rewardDodoID: String? = null
@@ -477,4 +478,8 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
         duelIsStarted = false
         println("Failed assignDuel: $e")
     }
+}
+
+private fun askGPT() {
+    // TODO
 }
