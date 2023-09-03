@@ -26,13 +26,20 @@ import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
 import java.time.Duration
+import java.util.*
 
 val dotenv = Dotenv.load()
 
-//  TODO(@olegsvs) fix chars, WTF
+//  TODO(@olegsvs): fix chars, WTF
 val dodoPromo = dotenv.get("DODO_PROMO").replace("'", "")
 val staregeBotAccessToken = dotenv.get("SENTRY_OAUTH_TOKEN").replace("'", "")
+val staregeBotRefreshToken = dotenv.get("SENTRY_REFRESH_TOKEN").replace("'", "")
+val staregeBotTokenExpiresInSeconds = dotenv.get("SENTRY_EXPIRES_IN").replace("'", "")
 val twitchChannelAccessToken = dotenv.get("CHANNEL_OAUTH_TOKEN").replace("'", "")
+val twitchChannelRefreshToken = dotenv.get("CHANNEL_REFRESH_TOKEN").replace("'", "")
+val twitchChannelTokenExpiresInSeconds = dotenv.get("CHANNEL_EXPIRES_IN").replace("'", "")
+val tokensGeneratedTimeMillis = System.currentTimeMillis() / 1000
+const val testDefaultRefreshRateTokensTimeMillis: Long = 10800 * 1000 // 3h
 val staregeBotOAuth2Credential = OAuth2Credential("twitch", staregeBotAccessToken)
 val twitchChannelOAuth2Credential = OAuth2Credential("twitch", twitchChannelAccessToken)
 val youtubeApiKey = dotenv.get("YOUTUBE_API_KEY").replace("'", "")
@@ -73,6 +80,11 @@ val httpClient = HttpClient(CIO) {
 
 @OptIn(DelicateCoroutinesApi::class)
 fun main(args: Array<String>) {
+    Timer().scheduleAtFixedRate(object : TimerTask() {
+        override fun run() {
+            refreshTokensTask()
+        }
+    }, testDefaultRefreshRateTokensTimeMillis, testDefaultRefreshRateTokensTimeMillis)
     twitchClient.chat.joinChannel("c_a_k_e")
     twitchClient.eventManager.onEvent(ChannelMessageEvent::class.java) { event ->
         if (event.message.startsWith("!title ")) {
@@ -86,16 +98,16 @@ fun main(args: Array<String>) {
                 getLastYoutubeHighlight(event)
             }
         }
-        if (event.message.startsWith("!sping")) {
+        if (event.message.equals("!sping") || event.message.startsWith("!sping ")) {
             pingCommand(event)
         }
-        if (event.message.startsWith("!fight")) {
+        if (event.message.equals("!fight") || event.message.startsWith("!fight ")) {
             GlobalScope.launch {
                 startDuelCommand(event)
             }
 
         }
-        if (event.message.startsWith("!gof")) {
+        if (event.message.equals("!gof") || event.message.startsWith("!gof ")) {
             GlobalScope.launch {
                 assignDuelCommand(event)
             }
@@ -107,13 +119,13 @@ fun main(args: Array<String>) {
     val cRewards =
         helixClient.getCustomRewards(twitchChannelOAuth2Credential.accessToken, broadcasterId, null, null).execute()
     for (reward in cRewards.rewards) {
-//        if (reward.title.equals("test") || reward.title.equals("0aa7d314-6ac2-4806-9527-4530f74ebf19")) {
-//            helixClient.deleteCustomReward(
-//                twitchChannelOAuth2Credential.accessToken,
-//                broadcasterId,
-//                reward.id,
-//            ).execute()
-//        }
+        //        if (reward.title.equals("test") || reward.title.equals("0aa7d314-6ac2-4806-9527-4530f74ebf19")) {
+        //            helixClient.deleteCustomReward(
+        //                twitchChannelOAuth2Credential.accessToken,
+        //                broadcasterId,
+        //                reward.id,
+        //            ).execute()
+        //        }
         if (reward.title.equals(rewardDodoTitle)) {
             rewardDodoID = reward.id
             val customRewards = helixClient.getCustomRewardRedemption(
@@ -157,6 +169,7 @@ fun main(args: Array<String>) {
         val customReward = CustomReward()
             .withCost(1500000)
             .withTitle(rewardDodoTitle)
+            .withIsEnabled(true)
         helixClient.updateCustomReward(
             twitchChannelOAuth2Credential.accessToken,
             broadcasterId,
@@ -172,6 +185,39 @@ fun main(args: Array<String>) {
     twitchClient.eventManager.onEvent(PredictionUpdatedEvent::class.java, ::onPredictionUpdatedEvent)
 }
 
+fun refreshTokensTask() {
+    println("refreshTokensTask start")
+    val processBuilder = ProcessBuilder()
+    processBuilder.command("bash", "-c", "cd /home/bot/twitch_bot/ && . jrestart.sh")
+    try {
+        rewardDodoID?.let {
+            helixClient.updateCustomReward(
+                twitchChannelOAuth2Credential.accessToken,
+                broadcasterId,
+                rewardDodoID,
+                CustomReward().withIsEnabled(false)
+            ).execute()
+        }
+        processBuilder.start()
+        println("refreshTokensTask process called")
+    } catch (e: Throwable) {
+        println("Failed call restart script: $e")
+    }
+}
+
+fun sendEmail(message: String) {
+    println("sendEmail start")
+    val processBuilder = ProcessBuilder()
+    // os.system('echo "'+ em_message +'" | mail -s "TwitchBot" oleg.texet@gmail.com')
+    processBuilder.command("bash", "-c", "echo $message | mail -s 'TwitchBot' oleg.texet@gmail.com")
+    try {
+        processBuilder.start()
+        println("sendEmail process called")
+    } catch (e: Throwable) {
+        println("Failed call restart script: $e")
+    }
+}
+
 private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
     try {
         if (rewardRedeemedEvent.redemption.reward.id.equals(rewardDodoID)) {
@@ -182,13 +228,20 @@ private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
                 user.id,
                 "Ваш промокод на додо-пиццу за 1р: $dodoPromo"
             ).execute()
+            sendEmail("send promo $dodoPromo to user: ${user.displayName}")
             twitchClient.chat.sendMessage(
                 "c_a_k_e",
-                "peepoFat \uD83C\uDF55  @${user.displayName} отправил вам промокод в ЛС :) Если он не пришёл, то возможно у вас заблокирована личка для незнакомых, напишите в личку @Sentry__Ward"
+                "peepoFat \uD83C\uDF55  @${user.displayName} отправил вам промокод в ЛС :) Если он не пришёл, то возможно у вас заблокирована личка для незнакомых, напишите в личку @Sentry__Ward или в тг @olegsvs"
             )
             helixClient.updateRedemptionStatus(
                 twitchChannelOAuth2Credential.accessToken,
                 broadcasterId, rewardDodoID, listOf(rewardRedeemedEvent.redemption.id), RedemptionStatus.FULFILLED
+            ).execute()
+            helixClient.updateCustomReward(
+                twitchChannelOAuth2Credential.accessToken,
+                broadcasterId,
+                rewardDodoID,
+                CustomReward().withIsPaused(true)
             ).execute()
         }
     } catch (e: Throwable) {
@@ -434,10 +487,12 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
         val now = System.currentTimeMillis()
         lastDuel = now
         duelIsStarted = false
+
         /*
-        await chat_bot.send_message(TARGET_CHANNEL, 'Opachki начинается дуэль между ' + duel_first_user_message.user.name + ' и ' + duel_second_user_message.user.name)
-        await asyncio.sleep(5)
+            await chat_bot.send_message(TARGET_CHANNEL, 'Opachki начинается дуэль между ' + duel_first_user_message.user.name + ' и ' + duel_second_user_message.user.name)
+            await asyncio.sleep(5)
          */
+
         event.reply(
             twitchClient.chat,
             "Opachki начинается дуэль между ${duelFirstUserMessage!!.user.name} и ${duelSecondUserMessage!!.user.name}"
