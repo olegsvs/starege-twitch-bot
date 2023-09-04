@@ -1,0 +1,20 @@
+{
+  "commands": [
+    {
+      "name": "fight",
+      "enabled": true
+    },
+    {
+      "name": "кок",
+      "enabled": true
+    },
+    {
+      "name": "yt",
+      "enabled": true
+    },
+    {
+      "name": "sping",
+      "enabled": true
+    }
+  ]
+}

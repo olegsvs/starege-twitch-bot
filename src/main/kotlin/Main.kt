@@ -17,6 +17,8 @@ import com.github.twitch4j.pubsub.domain.PredictionOutcome
 import com.github.twitch4j.pubsub.events.PredictionCreatedEvent
 import com.github.twitch4j.pubsub.events.PredictionUpdatedEvent
 import com.github.twitch4j.pubsub.events.RewardRedeemedEvent
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import io.github.cdimascio.dotenv.Dotenv
 import io.ktor.client.*
 import io.ktor.client.call.*
@@ -27,9 +29,11 @@ import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.time.Duration
 import java.util.*
 
+val logger: Logger = LoggerFactory.getLogger("bot")
 val dotenv = Dotenv.load()
 
 //  TODO(@olegsvs): fix chars, WTF
@@ -47,6 +51,9 @@ val twitchChannelAccessToken = dotenv.get("CHANNEL_OAUTH_TOKEN").replace("'", ""
 
 //val tokensGeneratedTimeMillis = System.currentTimeMillis() / 1000
 const val testDefaultRefreshRateTokensTimeMillis: Long = 10800 * 1000 // 3h
+
+private val gsonPretty: Gson = GsonBuilder().setPrettyPrinting().create()
+val commands = gsonPretty.fromJson(File("commands.json").readText(), Commands::class.java) as Commands
 
 val staregeBotOAuth2Credential = OAuth2Credential("twitch", staregeBotAccessToken)
 val twitchChannelOAuth2Credential = OAuth2Credential("twitch", twitchChannelAccessToken)
@@ -66,8 +73,6 @@ val helixClient: TwitchHelix = TwitchHelixBuilder.builder()
     .withClientSecret(twitchClientSecret)
     .withLogLevel(feign.Logger.Level.BASIC)
     .build()
-
-val logger: Logger = LoggerFactory.getLogger("bot")
 
 val twitchClient: TwitchClient = TwitchClientBuilder.builder()
     .withEnableChat(true)
@@ -116,16 +121,25 @@ fun main(args: Array<String>) {
         if (event.message.equals("!sping") || event.message.startsWith("!sping ")) {
             pingCommand(event)
         }
+        if (event.message.equals("!кок") || event.message.startsWith("!кок ")) {
+            cockCommand(event)
+        }
         if (event.message.equals("!fight") || event.message.startsWith("!fight ")) {
             GlobalScope.launch {
                 startDuelCommand(event)
             }
-
         }
         if (event.message.equals("!gof") || event.message.startsWith("!gof ")) {
             GlobalScope.launch {
                 assignDuelCommand(event)
             }
+        }
+        if (event.message.startsWith("!sdisable ")) {
+            setEnabledCommand(event, false)
+        }
+
+        if (event.message.startsWith("!senable ")) {
+            setEnabledCommand(event, true)
         }
     }
 
@@ -360,6 +374,7 @@ private fun changeCategory(event: ChannelMessageEvent, newCategory: String) {
 }
 
 private fun pingCommand(event: ChannelMessageEvent) {
+    if (!commands.isEnabled("sping")) return
     logger.info("pingCommand")
     try {
         event.reply(
@@ -371,12 +386,46 @@ private fun pingCommand(event: ChannelMessageEvent) {
     }
 }
 
+private fun cockCommand(event: ChannelMessageEvent) {
+    if (!commands.isEnabled("кок")) return
+    logger.info("cockCommand")
+    try {
+        event.reply(
+            twitchClient.chat,
+            "У @${event.user.name} кок ${(0..30).random()}см YEP"
+        )
+    } catch (e: Throwable) {
+        logger.error("Failed pingCommand: ", e)
+    }
+}
+
 private fun getEnabledCommands(): String {
-    return "!sping, !fight, !yt"
+    return "${commands.commands.map { "!${it.name} " }}".removePrefix("[").removeSuffix(" ]")
+}
+
+private fun setEnabledCommand(event: ChannelMessageEvent, enabled: Boolean) {
+    logger.info("setEnabledCommand")
+    try {
+        if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
+            val commandName = event.message.split(" ")[1]
+            val result = commands.setEnabled(commandName, enabled)
+            if (result) {
+                File("commands.json").writeText(gsonPretty.toJson(commands))
+                val hint = if (enabled) "включена" else "отключена"
+                event.reply(
+                    twitchClient.chat,
+                    "Starege : команда $commandName $hint"
+                )
+            }
+        }
+    } catch (e: Throwable) {
+        logger.error("Failed setEnabledCommand: ", e)
+    }
 }
 
 var lastYoutubeCommand: Long? = null
 private suspend fun getLastYoutubeHighlight(event: ChannelMessageEvent) {
+    if (!commands.isEnabled("yt")) return
     logger.info("getLastYoutubeHighlight")
     try {
         if (lastYoutubeCommand != null) {
@@ -426,6 +475,7 @@ var duelFirstUserMessage: ChannelMessageEvent? = null
 var duelSecondUserMessage: ChannelMessageEvent? = null
 var lastDuel: Long? = System.currentTimeMillis()
 private suspend fun startDuelCommand(event: ChannelMessageEvent) {
+    if (!commands.isEnabled("fight")) return
     logger.info("duel request")
     try {
         if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
@@ -501,6 +551,8 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
 
         if (!duelFirstUserMessage!!.user.id.equals(event.user.id)) {
             duelSecondUserMessage = event
+        } else {
+            return
         }
         val now = System.currentTimeMillis()
         lastDuel = now

@@ -26,6 +26,7 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktor_version")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("io.github.cdimascio:dotenv-java:2.3.2")
+    implementation("com.google.code.gson:gson:2.10.1")
 }
 
 tasks.test {
