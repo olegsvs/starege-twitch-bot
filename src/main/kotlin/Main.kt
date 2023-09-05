@@ -39,6 +39,7 @@ val dotenv = Dotenv.load()
 //  TODO(@olegsvs): fix chars, WTF
 val dodoPromo = dotenv.get("DODO_PROMO").replace("'", "")
 const val rewardDodoTitle = "Промокод на ДОДО пиццу за 1р (ТОЛЬКО РФ)"
+const val rewardDodoDescription = "Получите в личку на твиче промокод на среднюю(30 см) пиццу! Награда может быть активирована 1 раз во время стрима"
 var rewardDodoID: String? = null
 
 val staregeBotAccessToken = dotenv.get("SENTRY_OAUTH_TOKEN").replace("'", "")
@@ -180,6 +181,7 @@ fun main(args: Array<String>) {
         val customReward = CustomReward()
             .withCost(1500000)
             .withTitle(rewardDodoTitle)
+            .withPrompt(rewardDodoDescription)
             .withIsUserInputRequired(false)
             .withBackgroundColor("#FF6900")
             .withIsEnabled(true)
@@ -198,6 +200,7 @@ fun main(args: Array<String>) {
         val customReward = CustomReward()
             .withCost(1500000)
             .withTitle(rewardDodoTitle)
+            .withPrompt(rewardDodoDescription)
             .withIsEnabled(true)
         helixClient.updateCustomReward(
             twitchChannelOAuth2Credential.accessToken,
