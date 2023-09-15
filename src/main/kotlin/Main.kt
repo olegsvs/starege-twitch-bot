@@ -259,9 +259,9 @@ fun sendEmail(message: String) {
     val path = System.getProperty("user.dir")
     processBuilder.command("$path/send.sh", "'$message'")
     try {
-        processBuilder.start()
-        logger.info("sendEmail process called with command ${processBuilder.command().toString()}")
-        logger.info("sendEmail ${processBuilder.toString()} ${processBuilder.directory()} ${processBuilder.environment().toString()}")
+        val process = processBuilder.start()
+        process.waitFor()
+        logger.info("sendEmail process called")
     } catch (e: Throwable) {
         logger.error("Failed call sendEmail: ", e)
     }
@@ -428,7 +428,7 @@ private fun pingCommand(event: ChannelMessageEvent) {
 
 private fun addTestRewardCommand(event: ChannelMessageEvent) {
     logger.info("addTestRewardCommand")
-    if(!event.permissions.contains(CommandPermission.MODERATOR) && !event.permissions.contains(CommandPermission.BROADCASTER)) {
+    if (!event.permissions.contains(CommandPermission.MODERATOR) && !event.permissions.contains(CommandPermission.BROADCASTER)) {
         return
     }
     try {
@@ -453,7 +453,7 @@ private fun addTestRewardCommand(event: ChannelMessageEvent) {
 
 private fun deleteTestRewardCommand(event: ChannelMessageEvent) {
     logger.info("deleteTestRewardCommand")
-    if(!event.permissions.contains(CommandPermission.MODERATOR) && !event.permissions.contains(CommandPermission.BROADCASTER)) {
+    if (!event.permissions.contains(CommandPermission.MODERATOR) && !event.permissions.contains(CommandPermission.BROADCASTER)) {
         return
     }
     try {
