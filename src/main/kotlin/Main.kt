@@ -29,7 +29,9 @@ import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
+import java.io.BufferedReader
 import java.io.File
+import java.io.InputStreamReader
 import java.time.Duration
 import java.util.*
 
@@ -256,12 +258,18 @@ fun refreshTokensTask() {
 fun sendEmail(message: String) {
     logger.info("sendEmail start with message $message")
     val processBuilder = ProcessBuilder()
+    var output: String = ""
     val path = System.getProperty("user.dir")
     processBuilder.command("$path/send.sh", "'$message'")
     try {
         val process = processBuilder.start()
+        val inputStream = BufferedReader(InputStreamReader(process.getInputStream()))
+        while (inputStream.readLine()?.also { output = it } != null) {
+            logger.info("sendEmail process output: $output")
+        }
+        inputStream.close()
         process.waitFor()
-        logger.info("sendEmail process called")
+        logger.info("sendEmail process called with command ${processBuilder.command().toString()}")
     } catch (e: Throwable) {
         logger.error("Failed call sendEmail: ", e)
     }
