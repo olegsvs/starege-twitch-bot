@@ -39,8 +39,11 @@ val dotenv = Dotenv.load()
 //  TODO(@olegsvs): fix chars, WTF
 val dodoPromo = dotenv.get("DODO_PROMO").replace("'", "")
 const val rewardDodoTitle = "Промокод на ДОДО пиццу за 1р (ТОЛЬКО РФ)"
-const val rewardDodoDescription = "Получите в личку на твиче промокод на среднюю(30 см) пиццу! Награда может быть активирована 1 раз во время стрима"
+const val rewardTestTitle = "Test whisper"
+const val rewardDodoDescription =
+    "Получите в личку на твиче промокод на среднюю(30 см) пиццу! Награда может быть активирована 1 раз во время стрима"
 var rewardDodoID: String? = null
+var rewardTestID: String? = null
 
 val staregeBotAccessToken = dotenv.get("SENTRY_OAUTH_TOKEN").replace("'", "")
 //val staregeBotRefreshToken = dotenv.get("SENTRY_REFRESH_TOKEN").replace("'", "")
@@ -122,6 +125,9 @@ fun main(args: Array<String>) {
         if (event.message.equals("!sping") || event.message.startsWith("!sping ")) {
             pingCommand(event)
         }
+        if (event.message.equals("!stestemail") || event.message.startsWith("!stestemail ")) {
+            sendEmail("send promo $rewardDodoTitle to user: ${event.user.name}")
+        }
         if (event.message.equals("!кок") || event.message.startsWith("!кок ")) {
             cockCommand(event)
         }
@@ -141,6 +147,12 @@ fun main(args: Array<String>) {
 
         if (event.message.startsWith("!senable ")) {
             setEnabledCommand(event, true)
+        }
+        if (event.message.equals("!saddtestreward") || event.message.startsWith("!saddtestreward ")) {
+            addTestRewardCommand(event)
+        }
+        if (event.message.equals("!srmtestreward") || event.message.startsWith("!srmtestreward ")) {
+            deleteTestRewardCommand(event)
         }
     }
 
@@ -222,13 +234,17 @@ fun refreshTokensTask() {
     val processBuilder = ProcessBuilder()
     processBuilder.command("bash", "-c", "cd /home/bot/twitch_bot/ && . jrestart.sh")
     try {
-        rewardDodoID?.let {
-            helixClient.updateCustomReward(
-                twitchChannelOAuth2Credential.accessToken,
-                broadcasterId,
-                rewardDodoID,
-                CustomReward().withIsEnabled(false)
-            ).execute()
+        try {
+            rewardDodoID?.let {
+                helixClient.updateCustomReward(
+                    twitchChannelOAuth2Credential.accessToken,
+                    broadcasterId,
+                    rewardDodoID,
+                    CustomReward().withIsEnabled(false)
+                ).execute()
+            }
+        } catch (e: Throwable) {
+            logger.error("Failed updateCustomReward in refreshTokensTask:", e)
         }
         processBuilder.start()
         logger.info("refreshTokensTask process called")
@@ -238,28 +254,29 @@ fun refreshTokensTask() {
 }
 
 fun sendEmail(message: String) {
-    logger.info("sendEmail start")
+    logger.info("sendEmail start with message $message")
     val processBuilder = ProcessBuilder()
-    // os.system('echo "'+ em_message +'" | mail -s "TwitchBot" oleg.texet@gmail.com')
-    processBuilder.command("bash", "-c", "echo $message | mail -s 'TwitchBot' oleg.texet@gmail.com")
+    val path = System.getProperty("user.dir")
+    processBuilder.command("$path/send.sh", "'$message'")
     try {
         processBuilder.start()
-        logger.info("sendEmail process called")
+        logger.info("sendEmail process called with command ${processBuilder.command().toString()}")
+        logger.info("sendEmail ${processBuilder.toString()} ${processBuilder.directory()} ${processBuilder.environment().toString()}")
     } catch (e: Throwable) {
-        logger.error("Failed call restart script: ", e)
+        logger.error("Failed call sendEmail: ", e)
     }
 }
 
 private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
     try {
         if (rewardRedeemedEvent.redemption.reward.id.equals(rewardDodoID)) {
-            logger.info("onRewardRedeemed, title:: ${rewardRedeemedEvent.redemption.reward.title}")
+            logger.info("onRewardRedeemed, title: ${rewardRedeemedEvent.redemption.reward.title}")
             val user = rewardRedeemedEvent.redemption.user
             helixClient.sendWhisper(
                 staregeBotOAuth2Credential.accessToken,
                 moderatorId,
                 user.id,
-                "Ваш промокод на додо-пиццу за 1р: $dodoPromo"
+                "Ваш промо dodo pizza - $dodoPromo"
             ).execute()
             sendEmail("send promo $dodoPromo to user: ${user.displayName}")
             twitchClient.chat.sendMessage(
@@ -276,53 +293,73 @@ private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
                 rewardDodoID,
                 CustomReward().withIsPaused(true)
             ).execute()
+        } else if (rewardRedeemedEvent.redemption.reward.id.equals(rewardTestID)) {
+            val user = rewardRedeemedEvent.redemption.user
+            logger.info("onRewardRedeemed, title: ${rewardRedeemedEvent.redemption.reward.title}, user: ${user.toString()}, userId: ${user.id}")
+            helixClient.sendWhisper(
+                staregeBotOAuth2Credential.accessToken,
+                moderatorId,
+                user.id,
+                "test"
+            ).execute()
         }
     } catch (e: Throwable) {
         logger.error("Failed onRewardRedeemed: ", e)
-        helixClient.updateRedemptionStatus(
-            twitchChannelOAuth2Credential.accessToken,
-            broadcasterId, rewardDodoID, listOf(rewardRedeemedEvent.redemption.id), RedemptionStatus.CANCELED
-        ).execute()
-        twitchClient.chat.sendMessage(
-            "c_a_k_e",
-            "@${rewardRedeemedEvent.redemption.user.displayName}, ошибка отправки промо додо-пиццы, возможно у вас отключено принятие сообщений в ЛС в настройках приватности, попробуйте позднее Sadge"
-        )
+        if (rewardRedeemedEvent.redemption.reward.id.equals(rewardDodoID)) {
+            twitchClient.chat.sendMessage(
+                "c_a_k_e",
+                "@${rewardRedeemedEvent.redemption.user.displayName}, ошибка отправки промо додо-пиццы, возможно у вас отключено принятие сообщений в ЛС в настройках приватности, попробуйте позднее Sadge"
+            )
+            //TODO @(olegsvs): check enabled after cancel
+            helixClient.updateRedemptionStatus(
+                twitchChannelOAuth2Credential.accessToken,
+                broadcasterId, rewardDodoID, listOf(rewardRedeemedEvent.redemption.id), RedemptionStatus.CANCELED
+            ).execute()
+        }
     }
 }
 
 private fun onPredictionCreatedEvent(predictionCreatedEvent: PredictionCreatedEvent) {
     logger.info("onPredictionCreatedEvent")
-    helixClient.sendChatAnnouncement(
-        staregeBotOAuth2Credential.accessToken,
-        broadcasterId,
-        moderatorId,
-        "PepegaPhone СТАВКА",
-        AnnouncementColor.PURPLE
-    ).execute()
+    try {
+        helixClient.sendChatAnnouncement(
+            staregeBotOAuth2Credential.accessToken,
+            broadcasterId,
+            moderatorId,
+            "PepegaPhone СТАВКА",
+            AnnouncementColor.PURPLE
+        ).execute()
+    } catch (e: Throwable) {
+        logger.error("Failed onPredictionCreatedEvent sendChatAnnouncement: ", e)
+    }
 }
 
 private fun onPredictionUpdatedEvent(predictionUpdatedEvent: PredictionUpdatedEvent) {
-    if (predictionUpdatedEvent.event.status.equals("RESOLVED")) {
-        logger.info("onPrediction RESOLVED Event")
-        val win: PredictionOutcome =
-            predictionUpdatedEvent.event.outcomes.first { it.id.equals(predictionUpdatedEvent.event.winningOutcomeId) }
-        when (win.color.name) {
-            "BLUE" -> helixClient.sendChatAnnouncement(
-                staregeBotOAuth2Credential.accessToken,
-                broadcasterId,
-                moderatorId,
-                "BlueWin",
-                AnnouncementColor.PURPLE
-            ).execute()
+    try {
+        if (predictionUpdatedEvent.event.status.equals("RESOLVED")) {
+            logger.info("onPrediction RESOLVED Event")
+            val win: PredictionOutcome =
+                predictionUpdatedEvent.event.outcomes.first { it.id.equals(predictionUpdatedEvent.event.winningOutcomeId) }
+            when (win.color.name) {
+                "BLUE" -> helixClient.sendChatAnnouncement(
+                    staregeBotOAuth2Credential.accessToken,
+                    broadcasterId,
+                    moderatorId,
+                    "BlueWin",
+                    AnnouncementColor.PURPLE
+                ).execute()
 
-            "PINK" -> helixClient.sendChatAnnouncement(
-                staregeBotOAuth2Credential.accessToken,
-                broadcasterId,
-                moderatorId,
-                "RedWin",
-                AnnouncementColor.PURPLE
-            ).execute()
+                "PINK" -> helixClient.sendChatAnnouncement(
+                    staregeBotOAuth2Credential.accessToken,
+                    broadcasterId,
+                    moderatorId,
+                    "RedWin",
+                    AnnouncementColor.PURPLE
+                ).execute()
+            }
         }
+    } catch (e: Throwable) {
+        logger.error("Failed onPredictionUpdatedEvent sendChatAnnouncement: ", e)
     }
 }
 
@@ -389,6 +426,53 @@ private fun pingCommand(event: ChannelMessageEvent) {
     }
 }
 
+private fun addTestRewardCommand(event: ChannelMessageEvent) {
+    logger.info("addTestRewardCommand")
+    if(!event.permissions.contains(CommandPermission.MODERATOR) && !event.permissions.contains(CommandPermission.BROADCASTER)) {
+        return
+    }
+    try {
+        val cRewards =
+            helixClient.getCustomRewards(twitchChannelOAuth2Credential.accessToken, broadcasterId, null, null).execute()
+        if (cRewards.rewards.none { it.title.equals(rewardTestTitle) }) {
+            val customReward = CustomReward()
+                .withCost(1)
+                .withTitle(rewardTestTitle)
+            val newReward =
+                helixClient.createCustomReward(twitchChannelOAuth2Credential.accessToken, broadcasterId, customReward)
+                    .execute()
+            val reward = newReward.rewards.find { it.title.equals(rewardTestTitle) }
+            if (reward != null) {
+                rewardTestID = reward.id
+            }
+        }
+    } catch (e: Throwable) {
+        logger.error("Failed addTestRewardCommand: ", e)
+    }
+}
+
+private fun deleteTestRewardCommand(event: ChannelMessageEvent) {
+    logger.info("deleteTestRewardCommand")
+    if(!event.permissions.contains(CommandPermission.MODERATOR) && !event.permissions.contains(CommandPermission.BROADCASTER)) {
+        return
+    }
+    try {
+        val cRewards =
+            helixClient.getCustomRewards(twitchChannelOAuth2Credential.accessToken, broadcasterId, null, null).execute()
+        for (reward in cRewards.rewards) {
+            if (reward.title.equals(rewardTestTitle)) {
+                helixClient.deleteCustomReward(
+                    twitchChannelOAuth2Credential.accessToken,
+                    broadcasterId,
+                    reward.id,
+                ).execute()
+            }
+        }
+    } catch (e: Throwable) {
+        logger.error("Failed deleteTestRewardCommand: ", e)
+    }
+}
+
 private fun cockCommand(event: ChannelMessageEvent) {
     if (!commands.isEnabled("кок")) return
     logger.info("cockCommand")
@@ -403,7 +487,7 @@ private fun cockCommand(event: ChannelMessageEvent) {
 }
 
 private fun getEnabledCommands(): String {
-    return "${commands.commands.map { "!${it.name} " }}".removePrefix("[").removeSuffix(" ]")
+    return "${commands.commands.filter { it.enabled }.map { "!${it.name} " }}".removePrefix("[").removeSuffix(" ]")
 }
 
 private fun setEnabledCommand(event: ChannelMessageEvent, enabled: Boolean) {
