@@ -102,6 +102,7 @@ val httpClient = HttpClient(CIO) {
         })
     }
 }
+val chatMessages: MutableList<ChannelMessageEvent> = mutableListOf()
 
 @OptIn(DelicateCoroutinesApi::class)
 fun main(args: Array<String>) {
@@ -113,6 +114,10 @@ fun main(args: Array<String>) {
     }, testDefaultRefreshRateTokensTimeMillis, testDefaultRefreshRateTokensTimeMillis)
     twitchClient.chat.joinChannel("c_a_k_e")
     twitchClient.eventManager.onEvent(ChannelMessageEvent::class.java) { event ->
+        chatMessages.add(event)
+        if (event.message.startsWith("!sbanp ")) {
+            banUsersWithPhrase(event, event.message.removePrefix("!sbanp "))
+        }
         if (event.message.startsWith("!title ")) {
             changeTitle(event, event.message.removePrefix("!title "))
         }
@@ -129,9 +134,6 @@ fun main(args: Array<String>) {
         }
         if (event.message.equals("!stestemail") || event.message.startsWith("!stestemail ")) {
             sendEmail("send promo $rewardDodoTitle to user: ${event.user.name}")
-        }
-        if (event.message.equals("!кок") || event.message.startsWith("!кок ")) {
-            cockCommand(event)
         }
         if (event.message.equals("!fight") || event.message.startsWith("!fight ")) {
             GlobalScope.launch {
@@ -371,6 +373,41 @@ private fun onPredictionUpdatedEvent(predictionUpdatedEvent: PredictionUpdatedEv
     }
 }
 
+private fun banUsersWithPhrase(event: ChannelMessageEvent, phrase: String) {
+    try {
+        if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
+            logger.info("banUsersWithPhrase request from user ${event.user.name}")
+            if (phrase.isEmpty()) {
+                event.reply(twitchClient.chat, "DinkDonk Укажите текст фразы для бана")
+                return
+            }
+            val messagesToBan : List<ChannelMessageEvent> = chatMessages.filter { it.message.contains(phrase) }
+            for (message in messagesToBan) {
+                if (message.permissions.contains(CommandPermission.MODERATOR) || message.permissions.contains(CommandPermission.BROADCASTER)) {
+                    continue
+                }
+                if(message.message.contains(phrase)) {
+                    try {
+                        helixClient.banUser(
+                            staregeBotOAuth2Credential.accessToken,
+                            broadcasterId,
+                            moderatorId,
+                            BanUserInput()
+                                .withUserId(message.user.id)
+                                .withReason("Messages contains banned phrase $phrase")
+                        ).execute()
+                    } catch (e: Throwable) {
+                        logger.error("BanUsersWithPhrase: Failed ban user: ", e)
+                    }
+                    logger.info("Banned user ${message.user.name}, reason: phrase $phrase, by user ${event.user.name}")
+                    chatMessages.remove(message)
+                }
+            }
+        }
+    } catch (e: Throwable) {
+        logger.error("Failed banUsersWithPhrase: ", e)
+    }
+}
 
 private fun changeTitle(event: ChannelMessageEvent, newTitle: String) {
     try {
@@ -427,7 +464,7 @@ private fun pingCommand(event: ChannelMessageEvent) {
     try {
         event.reply(
             twitchClient.chat,
-            "Starege pong, доступные команды: ${getEnabledCommands()}. For PETTHEMODS : !title, !sgame - change title/category"
+            "Starege pong, доступные команды: ${getEnabledCommands()}. For PETTHEMODS : !title, !sgame - change title/category, !sbanp phrase - ban all users who sent 'phrase'"
         )
     } catch (e: Throwable) {
         logger.error("Failed pingCommand: ", e)
@@ -478,19 +515,6 @@ private fun deleteTestRewardCommand(event: ChannelMessageEvent) {
         }
     } catch (e: Throwable) {
         logger.error("Failed deleteTestRewardCommand: ", e)
-    }
-}
-
-private fun cockCommand(event: ChannelMessageEvent) {
-    if (!commands.isEnabled("кок")) return
-    logger.info("cockCommand")
-    try {
-        event.reply(
-            twitchClient.chat,
-            "У @${event.user.name} кок ${(0..30).random()}см YEP"
-        )
-    } catch (e: Throwable) {
-        logger.error("Failed pingCommand: ", e)
     }
 }
 
