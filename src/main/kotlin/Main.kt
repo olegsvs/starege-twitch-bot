@@ -1,3 +1,5 @@
+import com.github.kotlintelegrambot.bot
+import com.github.kotlintelegrambot.entities.ChatId
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.github.philippheuer.credentialmanager.domain.OAuth2Credential
@@ -39,6 +41,9 @@ val logger: Logger = LoggerFactory.getLogger("bot")
 val dotenv = Dotenv.load()
 
 //  TODO(@olegsvs): fix chars, WTF
+val tgAdminID = dotenv.get("TG_ADMIN_ID").replace("'", "")
+val tgBotToken = dotenv.get("TG_BOT_TOKEN").replace("'", "")
+val tgBot = bot { token = tgBotToken }
 val dodoPromo = dotenv.get("DODO_PROMO").replace("'", "")
 const val rewardDodoTitle = "Промокод на ДОДО пиццу за 1р (ТОЛЬКО РФ)"
 const val rewardTestTitle = "Test whisper"
@@ -134,6 +139,9 @@ fun main(args: Array<String>) {
         }
         if (event.message.equals("!stestemail") || event.message.startsWith("!stestemail ")) {
             sendEmail("send promo $rewardDodoTitle to user: ${event.user.name}")
+        }
+        if (event.message.equals("!stesttelegram") || event.message.startsWith("!stesttelegram ")) {
+            sendTelegram("send promo $rewardDodoTitle to user: ${event.user.name}")
         }
         if (event.message.equals("!fight") || event.message.startsWith("!fight ")) {
             GlobalScope.launch {
@@ -277,6 +285,15 @@ fun sendEmail(message: String) {
     }
 }
 
+fun sendTelegram(message: String) {
+    logger.info("sendTelegram start with message $message")
+    try {
+        tgBot.sendMessage(chatId = ChatId.fromId(tgAdminID.toLong()), text = message)
+    } catch (e: Throwable) {
+        logger.error("Failed sendTelegram: ", e)
+    }
+}
+
 private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
     try {
         if (rewardRedeemedEvent.redemption.reward.id.equals(rewardDodoID)) {
@@ -381,12 +398,15 @@ private fun banUsersWithPhrase(event: ChannelMessageEvent, phrase: String) {
                 event.reply(twitchClient.chat, "DinkDonk Укажите текст фразы для бана")
                 return
             }
-            val messagesToBan : List<ChannelMessageEvent> = chatMessages.filter { it.message.contains(phrase) }
+            val messagesToBan: List<ChannelMessageEvent> = chatMessages.filter { it.message.contains(phrase) }
             for (message in messagesToBan) {
-                if (message.permissions.contains(CommandPermission.MODERATOR) || message.permissions.contains(CommandPermission.BROADCASTER)) {
+                if (message.permissions.contains(CommandPermission.MODERATOR) || message.permissions.contains(
+                        CommandPermission.BROADCASTER
+                    )
+                ) {
                     continue
                 }
-                if(message.message.contains(phrase)) {
+                if (message.message.contains(phrase)) {
                     try {
                         helixClient.banUser(
                             staregeBotOAuth2Credential.accessToken,

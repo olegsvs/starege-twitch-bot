@@ -11,6 +11,7 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
+    maven(uri("https://jitpack.io/"))
 }
 
 dependencies {
@@ -27,6 +28,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("io.github.cdimascio:dotenv-java:2.3.2")
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("io.github.kotlin-telegram-bot.kotlin-telegram-bot:telegram:6.1.0")
 }
 
 tasks.test {
