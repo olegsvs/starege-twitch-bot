@@ -305,7 +305,8 @@ private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
                 user.id,
                 "Ваш промо dodo pizza - $dodoPromo"
             ).execute()
-            sendEmail("send promo $dodoPromo to user: ${user.displayName}")
+            sendTelegram("send promo $dodoPromo to user: ${user.displayName}")
+//            sendEmail("send promo $dodoPromo to user: ${user.displayName}")
             twitchClient.chat.sendMessage(
                 "c_a_k_e",
                 "peepoFat \uD83C\uDF55  @${user.displayName} отправил вам промокод в ЛС :) Если он не пришёл, то возможно у вас заблокирована личка для незнакомых, напишите в личку @Sentry__Ward или в тг @olegsvs"
