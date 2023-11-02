@@ -1,4 +1,6 @@
 import com.github.kotlintelegrambot.bot
+import com.github.kotlintelegrambot.dispatch
+import com.github.kotlintelegrambot.dispatcher.command
 import com.github.kotlintelegrambot.entities.ChatId
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,8 +45,12 @@ val dotenv = Dotenv.load()
 //  TODO(@olegsvs): fix chars, WTF
 val tgAdminID = dotenv.get("TG_ADMIN_ID").replace("'", "")
 val tgBotToken = dotenv.get("TG_BOT_TOKEN").replace("'", "")
-val tgBot = bot { token = tgBotToken }
-val dodoPromo = dotenv.get("DODO_PROMO").replace("'", "")
+
+fun readDodoPromo(): String = File("dodo").readLines().first()
+
+fun writeDodoPromo(newPromo: String) = File("dodo").writeText(newPromo)
+
+var dodoPromo = readDodoPromo()
 const val rewardDodoTitle = "Промокод на ДОДО пиццу за 1р (ТОЛЬКО РФ)"
 const val rewardTestTitle = "Test whisper"
 const val rewardDodoDescription =
@@ -107,11 +113,56 @@ val httpClient = HttpClient(CIO) {
         })
     }
 }
+
+val tgBot = bot {
+    token = tgBotToken
+    dispatch {
+        command("ping") {
+            val result = bot.sendMessage(chatId = ChatId.fromId(message.chat.id), text = "Pong!")
+            result.fold({
+                logger.info("On ping command")
+            }, {
+                logger.info("On ping command, error: $it")
+            })
+        }
+        command("current") {
+            if(isTgAdmin(message.chat.id)) {
+                val result = bot.sendMessage(chatId = ChatId.fromId(message.chat.id), text = "Current promo: $dodoPromo")
+                result.fold({
+                    logger.info("On current command")
+                }, {
+                    logger.info("On current command, error: $it")
+                })
+            }
+        }
+        command("update") {
+            if(isTgAdmin(message.chat.id)) {
+                message.text?.let {
+                    val newPromo = it.removePrefix("/update ")
+                    dodoPromo = newPromo
+                    writeDodoPromo(newPromo)
+                    val result = bot.sendMessage(chatId = ChatId.fromId(message.chat.id), text = "Value updated to ${readDodoPromo()}!")
+                    result.fold({
+                        logger.info("On update command")
+                    }, {
+                        logger.info("On update command, error: $it")
+                    })
+                }
+            }
+        }
+    }
+}
+
+private fun isTgAdmin(callerId: Long): Boolean {
+    return callerId == tgAdminID.toLong()
+}
+
 val chatMessages: MutableList<ChannelMessageEvent> = mutableListOf()
 
 @OptIn(DelicateCoroutinesApi::class)
 fun main(args: Array<String>) {
     logger.info("Bot started")
+    tgBot.startPolling()
     Timer().scheduleAtFixedRate(object : TimerTask() {
         override fun run() {
             refreshTokensTask()
