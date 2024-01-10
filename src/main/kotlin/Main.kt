@@ -70,7 +70,8 @@ val twitchChannelAccessToken = dotenv.get("CHANNEL_OAUTH_TOKEN").replace("'", ""
 const val testDefaultRefreshRateTokensTimeMillis: Long = 10800 * 1000 // 3h
 
 private val gsonPretty: Gson = GsonBuilder().setPrettyPrinting().create()
-val commands = gsonPretty.fromJson(File("commands.json").readText(), Commands::class.java) as Commands
+val commands = Commands.init()
+val users = Users.init()
 
 val staregeBotOAuth2Credential = OAuth2Credential("twitch", staregeBotAccessToken)
 val twitchChannelOAuth2Credential = OAuth2Credential("twitch", twitchChannelAccessToken)
@@ -126,8 +127,9 @@ val tgBot = bot {
             })
         }
         command("current") {
-            if(isTgAdmin(message.chat.id)) {
-                val result = bot.sendMessage(chatId = ChatId.fromId(message.chat.id), text = "Current promo: $dodoPromo")
+            if (isTgAdmin(message.chat.id)) {
+                val result =
+                    bot.sendMessage(chatId = ChatId.fromId(message.chat.id), text = "Current promo: $dodoPromo")
                 result.fold({
                     logger.info("On current command")
                 }, {
@@ -136,12 +138,15 @@ val tgBot = bot {
             }
         }
         command("update") {
-            if(isTgAdmin(message.chat.id)) {
+            if (isTgAdmin(message.chat.id)) {
                 message.text?.let {
                     val newPromo = it.removePrefix("/update ")
                     dodoPromo = newPromo
                     writeDodoPromo(newPromo)
-                    val result = bot.sendMessage(chatId = ChatId.fromId(message.chat.id), text = "Value updated to ${readDodoPromo()}!")
+                    val result = bot.sendMessage(
+                        chatId = ChatId.fromId(message.chat.id),
+                        text = "Value updated to ${readDodoPromo()}!"
+                    )
                     result.fold({
                         logger.info("On update command")
                     }, {
@@ -217,6 +222,9 @@ fun main(args: Array<String>) {
         if (event.message.equals("!srmtestreward") || event.message.startsWith("!srmtestreward ")) {
             deleteTestRewardCommand(event)
         }
+        if (event.message.equals("!fstats") || event.message.startsWith("!fstats ")) {
+            duelStatsCommand(event)
+        }
     }
 
     twitchClient.pubSub.connect()
@@ -270,9 +278,9 @@ fun main(args: Array<String>) {
                     .isEnabled(true)
                     .maxPerUserPerStream(1).build()
             )
-        helixClient.createCustomReward(twitchChannelOAuth2Credential.accessToken, broadcasterId, customReward).execute()
+//        helixClient.createCustomReward(twitchChannelOAuth2Credential.accessToken, broadcasterId, customReward).execute()
     } else {
-        val customReward = CustomReward()
+        /*val customReward = CustomReward()
             .withCost(1500000)
             .withTitle(rewardDodoTitle)
             .withPrompt(rewardDodoDescription)
@@ -282,7 +290,12 @@ fun main(args: Array<String>) {
             broadcasterId,
             rewardDodoID,
             customReward
-        ).execute()
+        ).execute()*/
+        helixClient.deleteCustomReward(
+            twitchChannelOAuth2Credential.accessToken,
+            broadcasterId,
+            rewardDodoID
+        );
     }
 
     twitchClient.pubSub.listenForChannelPointsRedemptionEvents(twitchChannelOAuth2Credential, broadcasterId)
@@ -348,19 +361,23 @@ fun sendTelegram(message: String) {
 private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
     try {
         if (rewardRedeemedEvent.redemption.reward.id.equals(rewardDodoID)) {
-            logger.info("onRewardRedeemed, title: ${rewardRedeemedEvent.redemption.reward.title}")
             val user = rewardRedeemedEvent.redemption.user
-            helixClient.sendWhisper(
-                staregeBotOAuth2Credential.accessToken,
-                moderatorId,
-                user.id,
-                "Ваш промо dodo pizza - $dodoPromo"
-            ).execute()
+            logger.info("onRewardRedeemed, title: ${rewardRedeemedEvent.redemption.reward.title}, user: ${user.displayName}")
+            try {
+                helixClient.sendWhisper(
+                    staregeBotOAuth2Credential.accessToken,
+                    moderatorId,
+                    user.id,
+                    "Ваш промо dodo pizza - $dodoPromo"
+                ).execute()
+            } catch (e: Throwable) {
+                logger.error("Failed sendWhisper: ", e)
+                sendTelegram("send promo, failed sendWhisper: $e")
+            }
             sendTelegram("send promo $dodoPromo to user: ${user.displayName}")
-//            sendEmail("send promo $dodoPromo to user: ${user.displayName}")
             twitchClient.chat.sendMessage(
                 "c_a_k_e",
-                "peepoFat \uD83C\uDF55  @${user.displayName} отправил вам промокод в ЛС :) Если он не пришёл, то возможно у вас заблокирована личка для незнакомых, напишите в личку @Sentry__Ward или в тг @olegsvs"
+                "peepoFat \uD83C\uDF55  @${user.displayName} отправил вам промокод в ЛС :) Если он не пришёл, то возможно у вас заблокирована личка для незнакомых, напишите в личку @olegsvs или в тг @olegsvs"
             )
             helixClient.updateRedemptionStatus(
                 twitchChannelOAuth2Credential.accessToken,
@@ -384,6 +401,7 @@ private fun onRewardRedeemed(rewardRedeemedEvent: RewardRedeemedEvent) {
         }
     } catch (e: Throwable) {
         logger.error("Failed onRewardRedeemed: ", e)
+        sendTelegram("send promo, failed: $e")
         if (rewardRedeemedEvent.redemption.reward.id.equals(rewardDodoID)) {
             twitchClient.chat.sendMessage(
                 "c_a_k_e",
@@ -601,7 +619,7 @@ private fun setEnabledCommand(event: ChannelMessageEvent, enabled: Boolean) {
             val commandName = event.message.split(" ")[1]
             val result = commands.setEnabled(commandName, enabled)
             if (result) {
-                File("commands.json").writeText(gsonPretty.toJson(commands))
+                commands.save()
                 val hint = if (enabled) "включена" else "отключена"
                 event.reply(
                     twitchClient.chat,
@@ -702,7 +720,7 @@ private suspend fun startDuelCommand(event: ChannelMessageEvent) {
         duelFirstUserMessage = event
         event.reply(
             twitchClient.chat,
-            "@${event.user.name} ищет смельчака на бой, проигравшему - мут на 10 минут, напиши !gof, чтобы принять вызов(ожидание - 1 минута)"
+            "@${event.user.name} ищет смельчака на бой, проигравшему - мут на 10 минут, напиши !gof, чтобы принять вызов(ожидание - 1 минута) snejok"
         )
         logger.info("Duel: wait another user")
         delay(Duration.ofMinutes(1).toMillis())
@@ -761,17 +779,22 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
         delay(5000)
         val rnd = (0..1).random()
         val winner: ChannelMessageEvent?
-        val looser: ChannelMessageEvent?
+        val loser: ChannelMessageEvent?
         if (rnd == 0) {
             winner = duelFirstUserMessage!!
-            looser = duelSecondUserMessage!!
+            loser = duelSecondUserMessage!!
         } else {
             winner = duelSecondUserMessage!!
-            looser = duelFirstUserMessage!!
+            loser = duelFirstUserMessage!!
         }
+        val winnerUser: User = users.getByIdOrCreate(winner.user.id, winner.user.name)
+        users.update(winnerUser.win())
+        val loserUser: User = users.getByIdOrCreate(loser.user.id, loser.user.name)
+        users.update(loserUser.lose())
+        users.save()
         event.reply(
             twitchClient.chat,
-            "${winner.user.name}  EZ победил в поединке против forsenLaughingAtYou ${looser.user.name} и отправил его отдыхать на 10 минут SadgeCry"
+            "${winner.user.name} ${winnerUser.stats} EZ победил forsenLaughingAtYou ${loser.user.name} ${loserUser.stats} и отправил его отдыхать на 10 минут SadgeCry Timeout"
         )
         logger.info("Duel: clean duel 6")
         duelFirstUserMessage = null
@@ -783,7 +806,7 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
             broadcasterId,
             moderatorId,
             BanUserInput()
-                .withUserId(looser.user.id)
+                .withUserId(loser.user.id)
                 .withDuration(600)
                 .withReason("duel with ${winner.user.name}")
         ).execute()
@@ -793,6 +816,26 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
         duelSecondUserMessage = null
         duelIsStarted = false
         logger.error("Failed assignDuel: ", e)
+    }
+}
+
+var lastDuelStatsCommand: Long? = null
+private fun duelStatsCommand(event: ChannelMessageEvent) {
+    if (!commands.isEnabled("fstats")) return
+    logger.info("duelStatsCommand")
+    try {
+        if (lastDuelStatsCommand != null) {
+            val diff = System.currentTimeMillis() - lastDuelStatsCommand!!
+            if (diff < 60000) return
+        }
+        lastDuelStatsCommand = System.currentTimeMillis()
+        event.reply(
+            twitchClient.chat,
+            "Top 1 wins: ${users.getMaxWinsUser().userName} ${users.getMaxWinsUser().stats}, " +
+                    "Top 1 loses: ${users.getMaxLosesUser().userName} ${users.getMaxLosesUser().stats}"
+        )
+    } catch (e: Throwable) {
+        logger.error("Failed duelStatsCommand: ", e)
     }
 }
 

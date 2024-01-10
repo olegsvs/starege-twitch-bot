@@ -1,3 +1,7 @@
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
+import java.io.File
+
 data class Commands(
     val commands: MutableList<Command>
 ) {
@@ -18,6 +22,17 @@ data class Commands(
             return true
         } else {
             return false
+        }
+    }
+
+    fun save() {
+        File("commands.json").writeText(gsonPretty.toJson(this))
+    }
+
+    companion object {
+        private val gsonPretty: Gson = GsonBuilder().setPrettyPrinting().create()
+        fun init(): Commands {
+            return gsonPretty.fromJson(File("commands.json").readText(), Commands::class.java) as Commands
         }
     }
 }
