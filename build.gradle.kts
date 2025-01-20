@@ -29,6 +29,7 @@ dependencies {
     implementation("io.github.cdimascio:dotenv-java:2.3.2")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("io.github.kotlin-telegram-bot.kotlin-telegram-bot:telegram:6.1.0")
+    implementation(kotlin("stdlib-jdk8"))
 }
 
 tasks.test {
@@ -51,4 +52,12 @@ tasks.jar {
         .map(::zipTree)
     from(dependencies)
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+val compileKotlin: KotlinCompile by tasks
+compileKotlin.kotlinOptions {
+    jvmTarget = "1.8"
+}
+val compileTestKotlin: KotlinCompile by tasks
+compileTestKotlin.kotlinOptions {
+    jvmTarget = "1.8"
 }

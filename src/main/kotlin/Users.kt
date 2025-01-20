@@ -59,8 +59,8 @@ data class User(
         return this
     }
 
-    fun win(): User {
-        duelWins++
+    fun win(toAdd: Int  = 1): User {
+        duelWins+=toAdd
         return this
     }
 }

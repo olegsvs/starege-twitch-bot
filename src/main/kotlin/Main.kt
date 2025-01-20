@@ -10,13 +10,11 @@ import com.github.twitch4j.TwitchClient
 import com.github.twitch4j.TwitchClientBuilder
 import com.github.twitch4j.chat.events.channel.ChannelMessageEvent
 import com.github.twitch4j.common.enums.CommandPermission
+import com.github.twitch4j.eventsub.domain.PredictionStatus
 import com.github.twitch4j.eventsub.domain.RedemptionStatus
 import com.github.twitch4j.helix.TwitchHelix
 import com.github.twitch4j.helix.TwitchHelixBuilder
-import com.github.twitch4j.helix.domain.AnnouncementColor
-import com.github.twitch4j.helix.domain.BanUserInput
-import com.github.twitch4j.helix.domain.ChannelInformation
-import com.github.twitch4j.helix.domain.CustomReward
+import com.github.twitch4j.helix.domain.*
 import com.github.twitch4j.pubsub.domain.PredictionOutcome
 import com.github.twitch4j.pubsub.events.PredictionCreatedEvent
 import com.github.twitch4j.pubsub.events.PredictionUpdatedEvent
@@ -81,6 +79,7 @@ val youtubeChannelKey = dotenv.get("YOUTUBE_CHANNEL_KEY").replace("'", "")
 val youtubeCommandTriggers = listOf("!yt", "!ютуб", "!youtube")
 
 val broadcasterId = dotenv.get("BROADCASTER_ID").replace("'", "")
+val broadcasterIdLR = dotenv.get("BROADCASTER_ID_LR").replace("'", "")
 val moderatorId = dotenv.get("MODERATOR_ID").replace("'", "")
 
 val twitchClientId = dotenv.get("TWITCH_CLIENT_ID").replace("'", "")
@@ -174,56 +173,182 @@ fun main(args: Array<String>) {
         }
     }, testDefaultRefreshRateTokensTimeMillis, testDefaultRefreshRateTokensTimeMillis)
     twitchClient.chat.joinChannel("c_a_k_e")
+    twitchClient.chat.joinChannel("lady_rockycat")
     twitchClient.eventManager.onEvent(ChannelMessageEvent::class.java) { event ->
         chatMessages.add(event)
-        if (event.message.startsWith("!sbanp ")) {
-            banUsersWithPhrase(event, event.message.removePrefix("!sbanp "))
-        }
-        if (event.message.startsWith("!title ")) {
-            changeTitle(event, event.message.removePrefix("!title "))
-        }
-        if (event.message.startsWith("!sgame ")) {
-            changeCategory(event, event.message.removePrefix("!sgame "))
-        }
-        if (youtubeCommandTriggers.contains(event.message.trim())) {
-            GlobalScope.launch {
-                getLastYoutubeHighlight(event)
+        if (event.channel.name.lowercase() == "lady_rockycat") {
+            if (event.message.equals("!sping") || event.message.startsWith("!sping ")) {
+                try {
+                    event.reply(
+                        twitchClient.chat,
+                        "Starege pong, доступные команды: !fight, !fstats"
+                    )
+                } catch (e: Throwable) {
+                    logger.error("Failed pingCommand: ", e)
+                }
             }
-        }
-        if (event.message.equals("!sping") || event.message.startsWith("!sping ")) {
-            pingCommand(event)
-        }
-        if (event.message.equals("!stestemail") || event.message.startsWith("!stestemail ")) {
-            sendEmail("send promo $rewardDodoTitle to user: ${event.user.name}")
-        }
-        if (event.message.equals("!stesttelegram") || event.message.startsWith("!stesttelegram ")) {
-            sendTelegram("send promo $rewardDodoTitle to user: ${event.user.name}")
-        }
-        if (event.message.equals("!fight") || event.message.startsWith("!fight ")) {
-            GlobalScope.launch {
-                startDuelCommand(event)
+            if (event.message.equals("!fight") || event.message.startsWith("!fight ")) {
+                GlobalScope.launch {
+                    startDuelCommandLR(event)
+                }
             }
-        }
-        if (event.message.equals("!gof") || event.message.startsWith("!gof ")) {
-            GlobalScope.launch {
-                assignDuelCommand(event)
+            if (event.message.equals("!gof") || event.message.startsWith("!gof ")) {
+                GlobalScope.launch {
+                    assignDuelCommandLR(event)
+                }
             }
-        }
-        if (event.message.startsWith("!sdisable ")) {
-            setEnabledCommand(event, false)
-        }
+            if (event.message.equals("!fstats") || event.message.startsWith("!fstats ")) {
+                duelStatsCommandLR(event)
+            }
+        } else {
+            if (event.message.contains("hamster", ignoreCase = true) && event.message.contains(
+                    "bot",
+                    ignoreCase = true
+                )
+            ) {
+                try {
+                    logger.error("ban hamster: Try ban user: " + event.message + " " + event.user.id)
+                    helixClient.banUser(
+                        staregeBotOAuth2Credential.accessToken,
+                        broadcasterId,
+                        moderatorId,
+                        BanUserInput()
+                            .withUserId(event.user.id)
+                            .withReason("Messages contains banned phrase 'hamster bot'")
+                    ).execute()
+                    logger.info("Banned user ${event.user.name}, reason: phrase 'hamster bot'")
+                } catch (e: Throwable) {
+                    logger.error("ban hamster error: Failed ban user: ", e)
+                }
+            }
+            if (event.message.startsWith("!sbanp ")) {
+                banUsersWithPhrase(event, event.message.removePrefix("!sbanp "))
+            }
+            if (event.message.startsWith("!title ")) {
+                changeTitle(event, event.message.removePrefix("!title "))
+            }
+            if (event.message.startsWith("!sgame ")) {
+                changeCategory(event, event.message.removePrefix("!sgame "))
+            }
+            if (youtubeCommandTriggers.contains(event.message.trim())) {
+                GlobalScope.launch {
+                    getLastYoutubeHighlight(event)
+                }
+            }
+            if (event.message.equals("!sping") || event.message.startsWith("!sping ")) {
+                pingCommand(event)
+            }
+            if (event.message.equals("!cr_pred") || event.message.startsWith("!cr_pred ")) {
+                if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(
+                        CommandPermission.BROADCASTER
+                    )
+                ) {
+                    try {
+                        if (event.message.equals("!cr_pred ") || event.message.equals("!cr_pred")) {
+                            event.reply(
+                                twitchClient.chat,
+                                "Создать ставку на 5 минут !cr_pred {Название ставки} [Исход 1, Исход 2] 300"
+                            )
+                        } else {
+                            val namePrediction =
+                                event.message.substring(event.message.indexOf('{') + 1, event.message.indexOf('}'))
+                            val namesOutcomes: List<String> =
+                                event.message.substring(event.message.indexOf('[') + 1, event.message.indexOf(']'))
+                                    .split(',')
+                            val seconds = event.message.split(' ').last().toInt()
+                            val outcomes: MutableList<com.github.twitch4j.eventsub.domain.PredictionOutcome> =
+                                mutableListOf()
+                            for (name in namesOutcomes) {
+                                outcomes.add(com.github.twitch4j.eventsub.domain.PredictionOutcome().withTitle(name.trim()))
+                            }
+                            helixClient.createPrediction(
+                                twitchChannelOAuth2Credential.accessToken, Prediction()
+                                    .withBroadcasterId(broadcasterId)
+                                    .withPredictionWindowSeconds(seconds)
+                                    .withTitle(namePrediction)
+                                    .withOutcomes(outcomes)
+                            ).execute()
+                        }
 
-        if (event.message.startsWith("!senable ")) {
-            setEnabledCommand(event, true)
-        }
-        if (event.message.equals("!saddtestreward") || event.message.startsWith("!saddtestreward ")) {
-            addTestRewardCommand(event)
-        }
-        if (event.message.equals("!srmtestreward") || event.message.startsWith("!srmtestreward ")) {
-            deleteTestRewardCommand(event)
-        }
-        if (event.message.equals("!fstats") || event.message.startsWith("!fstats ")) {
-            duelStatsCommand(event)
+                    } catch (e: Throwable) {
+                        logger.error("Failed cr_pred:", e)
+                    }
+                }
+            }
+            if (event.message.equals("!rsl_pred") || event.message.startsWith("!rsl_pred ")) {
+                if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(
+                        CommandPermission.BROADCASTER
+                    )
+                ) {
+                    try {
+                        if (event.message.equals("!rsl_pred ") || event.message.equals("!rsl_pred")) {
+                            event.reply(
+                                twitchClient.chat,
+                                "Закрыть ставку с первым исходом !rsl_pred 1"
+                            )
+                        } else {
+                            val outcomePosition = event.message.split(' ').last().toInt()
+                            val predictions = helixClient.getPredictions(
+                                twitchChannelOAuth2Credential.accessToken,
+                                broadcasterId,
+                                null,
+                                null,
+                                null
+                            ).execute()
+                            val firstPred = predictions.predictions.get(0)
+                            helixClient.endPrediction(
+                                twitchChannelOAuth2Credential.accessToken,
+                                firstPred.toBuilder()
+                                    .status(PredictionStatus.RESOLVED)
+                                    .winningOutcomeId(firstPred.outcomes.get(outcomePosition - 1).id)
+                                    .build()
+                            ).execute()
+                        }
+
+                    } catch (e: Throwable) {
+                        logger.error("Failed rsl_pred:", e)
+                    }
+                }
+            }
+            if (event.message.equals("!stesttelegram") || event.message.startsWith("!stesttelegram ")) {
+                sendTelegram("send promo $rewardDodoTitle to user: ${event.user.name}")
+            }
+            if (event.message.equals("!fight") || event.message.startsWith("!fight ")) {
+                GlobalScope.launch {
+                    startDuelCommand(event)
+                }
+            }
+            if (event.message.equals("!yandex") || event.message.startsWith("!yandex ")) {
+                try {
+                    twitchClient.chat.sendMessage(
+                        "c_a_k_e",
+                        "Чудесные истории, которые вам надо увидеть! Переходи по ссылке и заряжайся новогодним настроением вместе с Яндекс Про: https://pro.yandex/istorii"
+                    )
+                } catch (e: Throwable) {
+                    logger.error("Failed call yandex script:", e)
+                }
+            }
+            if (event.message.equals("!gof") || event.message.startsWith("!gof ")) {
+                GlobalScope.launch {
+                    assignDuelCommand(event)
+                }
+            }
+            if (event.message.startsWith("!sdisable ")) {
+                setEnabledCommand(event, false)
+            }
+
+            if (event.message.startsWith("!senable ")) {
+                setEnabledCommand(event, true)
+            }
+            if (event.message.equals("!saddtestreward") || event.message.startsWith("!saddtestreward ")) {
+                addTestRewardCommand(event)
+            }
+            if (event.message.equals("!srmtestreward") || event.message.startsWith("!srmtestreward ")) {
+                deleteTestRewardCommand(event)
+            }
+            if (event.message.equals("!fstats") || event.message.startsWith("!fstats ")) {
+                duelStatsCommand(event)
+            }
         }
     }
 
@@ -262,7 +387,7 @@ fun main(args: Array<String>) {
     }
     if (cRewards.rewards.none { it.title.equals(rewardDodoTitle) }) {
         val customReward = CustomReward()
-            .withCost(1500000)
+            .withCost(1000000)
             .withTitle(rewardDodoTitle)
             .withPrompt(rewardDodoDescription)
             .withIsUserInputRequired(false)
@@ -278,19 +403,21 @@ fun main(args: Array<String>) {
                     .isEnabled(true)
                     .maxPerUserPerStream(1).build()
             )
-//        helixClient.createCustomReward(twitchChannelOAuth2Credential.accessToken, broadcasterId, customReward).execute()
+
+
+        //helixClient.createCustomReward(twitchChannelOAuth2Credential.accessToken, broadcasterId, customReward).execute()
     } else {
-        /*val customReward = CustomReward()
-            .withCost(1500000)
+        val customReward = CustomReward()
+            .withCost(1000000)
             .withTitle(rewardDodoTitle)
             .withPrompt(rewardDodoDescription)
             .withIsEnabled(true)
-        helixClient.updateCustomReward(
-            twitchChannelOAuth2Credential.accessToken,
-            broadcasterId,
-            rewardDodoID,
-            customReward
-        ).execute()*/
+        /*        helixClient.updateCustomReward(
+                    twitchChannelOAuth2Credential.accessToken,
+                    broadcasterId,
+                    rewardDodoID,
+                    customReward
+                ).execute()*/
         helixClient.deleteCustomReward(
             twitchChannelOAuth2Credential.accessToken,
             broadcasterId,
@@ -469,7 +596,9 @@ private fun banUsersWithPhrase(event: ChannelMessageEvent, phrase: String) {
                 return
             }
             val messagesToBan: List<ChannelMessageEvent> = chatMessages.filter { it.message.contains(phrase) }
+            logger.info("Filtered messages to ban : ${messagesToBan.toString()}")
             for (message in messagesToBan) {
+                logger.error("BanMessage: in loop, message: $message")
                 if (message.permissions.contains(CommandPermission.MODERATOR) || message.permissions.contains(
                         CommandPermission.BROADCASTER
                     )
@@ -478,6 +607,7 @@ private fun banUsersWithPhrase(event: ChannelMessageEvent, phrase: String) {
                 }
                 if (message.message.contains(phrase)) {
                     try {
+                        logger.error("BanUsersWithPhrase: Try ban user: " + message + " " + message.user.id)
                         helixClient.banUser(
                             staregeBotOAuth2Credential.accessToken,
                             broadcasterId,
@@ -486,11 +616,15 @@ private fun banUsersWithPhrase(event: ChannelMessageEvent, phrase: String) {
                                 .withUserId(message.user.id)
                                 .withReason("Messages contains banned phrase $phrase")
                         ).execute()
+                        logger.info("Banned user ${message.user.name}, reason: phrase $phrase, by user ${event.user.name}")
                     } catch (e: Throwable) {
                         logger.error("BanUsersWithPhrase: Failed ban user: ", e)
                     }
-                    logger.info("Banned user ${message.user.name}, reason: phrase $phrase, by user ${event.user.name}")
-                    chatMessages.remove(message)
+                    try {
+                        chatMessages.remove(message)
+                    } catch (e: Throwable) {
+                        logger.error("Failed chatMessages.remove(message): ", e)
+                    }
                 }
             }
         }
@@ -549,12 +683,11 @@ private fun changeCategory(event: ChannelMessageEvent, newCategory: String) {
 }
 
 private fun pingCommand(event: ChannelMessageEvent) {
-    if (!commands.isEnabled("sping")) return
     logger.info("pingCommand")
     try {
         event.reply(
             twitchClient.chat,
-            "Starege pong, доступные команды: ${getEnabledCommands()}. For PETTHEMODS : !title, !sgame - change title/category, !sbanp phrase - ban all users who sent 'phrase'"
+            "Starege pong, доступные команды: ${getEnabledCommands()}. For PETTHEMODS : !title, !sgame - change title/category, !sbanp phrase - ban all users who sent 'phrase' !cr_pred - create prediction, !rsl_pred - resolve prediction"
         )
     } catch (e: Throwable) {
         logger.error("Failed pingCommand: ", e)
@@ -652,9 +785,12 @@ private suspend fun getLastYoutubeHighlight(event: ChannelMessageEvent) {
                 .body()
         var found: VideoItem? = null
         for (video in videosInPlayList.items) {
+//            logger.info(video.snippet.description)
+//            logger.info(video.snippet.title)
             if (video.snippet.description.contains("shorts") or video.snippet.title.contains("@CakeStream"))
                 continue
             found = video
+            break
         }
         if (found != null) {
             val title = found.snippet.title
@@ -682,18 +818,25 @@ private suspend fun getLastYoutubeHighlight(event: ChannelMessageEvent) {
 var duelIsStarted = false
 var duelFirstUserMessage: ChannelMessageEvent? = null
 var duelSecondUserMessage: ChannelMessageEvent? = null
-var lastDuel: Long? = System.currentTimeMillis()
+var lastDuel: Long? = System.currentTimeMillis() - 300000 // minus 5 min default
 private suspend fun startDuelCommand(event: ChannelMessageEvent) {
-    if (!commands.isEnabled("fight")) return
+    val channelName = event.channel.name;
+    if (!commands.isEnabled("fight")) {
+//        event.reply(
+//            twitchClient.chat,
+//            "Используйте команду !зaряд"
+//        )
+        return
+    }
     logger.info("duel request")
     try {
-        if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
+        /*if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
             event.reply(
                 twitchClient.chat,
                 "Вы неуязвимы для боя EZ"
             )
             return
-        }
+        }*/
 
         if (duelIsStarted) {
             assignDuelCommand(event)
@@ -718,16 +861,22 @@ private suspend fun startDuelCommand(event: ChannelMessageEvent) {
         }
         duelIsStarted = true
         duelFirstUserMessage = event
-        event.reply(
-            twitchClient.chat,
-            "@${event.user.name} ищет смельчака на бой, проигравшему - мут на 10 минут, напиши !gof, чтобы принять вызов(ожидание - 1 минута) snejok"
+        /*        event.reply(
+                    twitchClient.chat,
+                    "@${event.user.name} ищет смельчака на бой! Проигравшему чаттерсу без модерки мут на 10 минут(а модеру -rep). Пиши !gof за минуту, чтобы подраться snejok"
+                )*/
+        twitchClient.chat.sendMessage(
+            "c_a_k_e",
+            "@${event.user.name} ищет смельчака на бой! Проигравшему без модерки - мут на 10 минут(а модеру -rep). Пиши !gof за минуту, чтобы подраться snejok"
         )
         logger.info("Duel: wait another user")
         delay(Duration.ofMinutes(1).toMillis())
-        logger.info("Duel: clean duel 1")
-        duelFirstUserMessage = null
-        duelSecondUserMessage = null
-        duelIsStarted = false
+        if (duelFirstUserMessage != null || duelSecondUserMessage != null) {
+            logger.info("Duel: clean duel 1")
+            duelFirstUserMessage = null
+            duelSecondUserMessage = null
+            duelIsStarted = false
+        }
     } catch (e: Throwable) {
         logger.info("Duel: clean duel 2")
         duelFirstUserMessage = null
@@ -740,13 +889,13 @@ private suspend fun startDuelCommand(event: ChannelMessageEvent) {
 private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
     logger.info("duel assign request")
     try {
-        if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
+        /*if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
             event.reply(
                 twitchClient.chat,
                 "Вы неуязвимы для боя EZ"
             )
             return
-        }
+        }*/
         if (!duelIsStarted) {
             return
         }
@@ -772,12 +921,39 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
             await asyncio.sleep(5)
          */
 
-        event.reply(
+        /*event.reply(
             twitchClient.chat,
+            "Opachki начинается дуэль между ${duelFirstUserMessage!!.user.name} и ${duelSecondUserMessage!!.user.name}"
+        )*/
+        twitchClient.chat.sendMessage(
+            "c_a_k_e",
             "Opachki начинается дуэль между ${duelFirstUserMessage!!.user.name} и ${duelSecondUserMessage!!.user.name}"
         )
         delay(5000)
         val rnd = (0..1).random()
+        val rndDraw = (0..99).random()
+        if (rndDraw == 0) {
+            val firstUser: User =
+                users.getByIdOrCreate(duelFirstUserMessage!!.user.id, duelFirstUserMessage!!.user.name)
+            users.update(firstUser.win(5))
+            val secondUser: User =
+                users.getByIdOrCreate(duelSecondUserMessage!!.user.id, duelSecondUserMessage!!.user.name)
+            users.update(secondUser.win(5))
+            users.save()
+            /*event.reply(
+                twitchClient.chat,
+                " PogT SHTO ничья, всем +1 очко YEP"
+            )*/
+            twitchClient.chat.sendMessage(
+                "c_a_k_e",
+                " PogT SHTO ничья, всем +5 очков YEP"
+            )
+            logger.info("Duel: clean duel 6")
+            duelFirstUserMessage = null
+            duelSecondUserMessage = null
+            duelIsStarted = false
+            return
+        }
         val winner: ChannelMessageEvent?
         val loser: ChannelMessageEvent?
         if (rnd == 0) {
@@ -792,24 +968,43 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
         val loserUser: User = users.getByIdOrCreate(loser.user.id, loser.user.name)
         users.update(loserUser.lose())
         users.save()
-        event.reply(
-            twitchClient.chat,
-            "${winner.user.name} ${winnerUser.stats} EZ победил forsenLaughingAtYou ${loser.user.name} ${loserUser.stats} и отправил его отдыхать на 10 минут SadgeCry Timeout"
-        )
-        logger.info("Duel: clean duel 6")
-        duelFirstUserMessage = null
-        duelSecondUserMessage = null
-        duelIsStarted = false
-        delay(5000)
-        helixClient.banUser(
-            staregeBotOAuth2Credential.accessToken,
-            broadcasterId,
-            moderatorId,
-            BanUserInput()
-                .withUserId(loser.user.id)
-                .withDuration(600)
-                .withReason("duel with ${winner.user.name}")
-        ).execute()
+        if (loser.permissions.contains(CommandPermission.MODERATOR) || loser.permissions.contains(CommandPermission.BROADCASTER)) {
+            /*event.reply(
+                twitchClient.chat,
+                "${winner.user.name} ${winnerUser.stats} EZ победил модератора Jokerge forsenLaughingAtYou ${loser.user.name} ${loserUser.stats} и отправил его модерировать чат NuAHule"
+            )*/
+            twitchClient.chat.sendMessage(
+                "c_a_k_e",
+                "${winner.user.name} ${winnerUser.stats} EZ победил модера Jokerge forsenLaughingAtYou ${loser.user.name} ${loserUser.stats} и отправил его чистить чат Modge"
+            )
+            logger.info("Duel: clean duel 6")
+            duelFirstUserMessage = null
+            duelSecondUserMessage = null
+            duelIsStarted = false
+        } else {
+            /*event.reply(
+                twitchClient.chat,
+                "${winner.user.name} ${winnerUser.stats} EZ победил forsenLaughingAtYou ${loser.user.name} ${loserUser.stats} и отправил его отдыхать на 10 минут SadgeCry Timeout"
+            )*/
+            twitchClient.chat.sendMessage(
+                "c_a_k_e",
+                "${winner.user.name} ${winnerUser.stats} EZ победил forsenLaughingAtYou ${loser.user.name} ${loserUser.stats} и отправил его отдыхать на 10 минут SadgeCry Timeout"
+            )
+            logger.info("Duel: clean duel 6")
+            duelFirstUserMessage = null
+            duelSecondUserMessage = null
+            duelIsStarted = false
+            delay(5000)
+            helixClient.banUser(
+                staregeBotOAuth2Credential.accessToken,
+                broadcasterId,
+                moderatorId,
+                BanUserInput()
+                    .withUserId(loser.user.id)
+                    .withDuration(600)
+                    .withReason("duel with ${winner.user.name}")
+            ).execute()
+        }
     } catch (e: Throwable) {
         logger.info("Duel: clean duel 7")
         duelFirstUserMessage = null
@@ -831,14 +1026,222 @@ private fun duelStatsCommand(event: ChannelMessageEvent) {
         lastDuelStatsCommand = System.currentTimeMillis()
         event.reply(
             twitchClient.chat,
-            "Top 1 wins: ${users.getMaxWinsUser().userName} ${users.getMaxWinsUser().stats}, " +
-                    "Top 1 loses: ${users.getMaxLosesUser().userName} ${users.getMaxLosesUser().stats}"
+            "Top 1 wins EZ : ${users.getMaxWinsUser().userName} ${users.getMaxWinsUser().stats}, " +
+                    "Top 1 loses Jokerge : ${users.getMaxLosesUser().userName} ${users.getMaxLosesUser().stats}"
         )
     } catch (e: Throwable) {
         logger.error("Failed duelStatsCommand: ", e)
     }
 }
 
-private fun askGPT() {
-    // TODO
+
+//lady_rocket_cat
+var duelIsStartedLR = false
+var duelFirstUserMessageLR: ChannelMessageEvent? = null
+var duelSecondUserMessageLR: ChannelMessageEvent? = null
+var lastDuelLR: Long? = System.currentTimeMillis() - 300000 // minus 5 min default
+private suspend fun startDuelCommandLR(event: ChannelMessageEvent) {
+    logger.info("duel request")
+    try {
+        /*if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
+            event.reply(
+                twitchClient.chat,
+                "Вы неуязвимы для боя EZ"
+            )
+            return
+        }*/
+
+        if (duelIsStartedLR) {
+            assignDuelCommand(event)
+            logger.info("Duel: another duel already started")
+            return
+        }
+
+        val now = System.currentTimeMillis() / 1000
+        if (lastDuelLR != null) {
+            val diff = (now - lastDuelLR!! / 1000)
+            if (diff < 300) {
+                val nextRollTime = (300 - diff)
+                val nextRollMinutes = (nextRollTime % 3600) / 60
+                val nextRollSeconds = (nextRollTime % 3600) % 60
+                event.reply(
+                    twitchClient.chat,
+                    "Ринг отмывают, осталось \uD83D\uDD5B ${nextRollMinutes}m${nextRollSeconds}s Modge"
+                )
+                logger.info("Duel: diff")
+                return
+            }
+        }
+        duelIsStartedLR = true
+        duelFirstUserMessageLR = event
+        /*        event.reply(
+                    twitchClient.chat,
+                    "@${event.user.name} ищет смельчака на бой! Проигравшему чаттерсу без модерки мут на 10 минут(а модеру -rep). Пиши !gof за минуту, чтобы подраться snejok"
+                )*/
+        twitchClient.chat.sendMessage(
+            "lady_rockycat",
+            "@${event.user.name} ищет смельчака на бой! Проигравшему без модерки - мут на 10 минут(а модеру -rep). Пиши !gof за минуту, чтобы подраться snejok"
+        )
+        logger.info("Duel: wait another user")
+        delay(Duration.ofMinutes(1).toMillis())
+        if (duelFirstUserMessageLR != null || duelSecondUserMessageLR != null) {
+            logger.info("Duel: clean duel 1")
+            duelFirstUserMessageLR = null
+            duelSecondUserMessageLR = null
+            duelIsStartedLR = false
+        }
+    } catch (e: Throwable) {
+        logger.info("Duel: clean duel 2")
+        duelFirstUserMessageLR = null
+        duelSecondUserMessageLR = null
+        duelIsStartedLR = false
+        logger.error("Failed fightCommand: ", e)
+    }
+}
+
+private suspend fun assignDuelCommandLR(event: ChannelMessageEvent) {
+    logger.info("duel assign request")
+    try {
+        /*if (event.permissions.contains(CommandPermission.MODERATOR) || event.permissions.contains(CommandPermission.BROADCASTER)) {
+            event.reply(
+                twitchClient.chat,
+                "Вы неуязвимы для боя EZ"
+            )
+            return
+        }*/
+        if (!duelIsStartedLR) {
+            return
+        }
+
+        if (duelFirstUserMessageLR == null) {
+            duelFirstUserMessageLR = null
+            duelSecondUserMessageLR = null
+            duelIsStartedLR = false
+            return
+        }
+
+        if (!duelFirstUserMessageLR!!.user.id.equals(event.user.id)) {
+            duelSecondUserMessageLR = event
+        } else {
+            return
+        }
+        val now = System.currentTimeMillis()
+        lastDuelLR = now
+        duelIsStartedLR = false
+
+        /*
+            await chat_bot.send_message(TARGET_CHANNEL, 'Opachki начинается дуэль между ' + duel_first_user_message.user.name + ' и ' + duel_second_user_message.user.name)
+            await asyncio.sleep(5)
+         */
+
+        /*event.reply(
+            twitchClient.chat,
+            "Opachki начинается дуэль между ${duelFirstUserMessage!!.user.name} и ${duelSecondUserMessage!!.user.name}"
+        )*/
+        twitchClient.chat.sendMessage(
+            "lady_rockycat",
+            "Opachki начинается дуэль между ${duelFirstUserMessageLR!!.user.name} и ${duelSecondUserMessageLR!!.user.name}"
+        )
+        delay(5000)
+        val rnd = (0..1).random()
+        val rndDraw = (0..99).random()
+        if (rndDraw == 0) {
+            val firstUser: User =
+                users.getByIdOrCreate(duelFirstUserMessageLR!!.user.id, duelFirstUserMessageLR!!.user.name)
+            users.update(firstUser.win(5))
+            val secondUser: User =
+                users.getByIdOrCreate(duelSecondUserMessageLR!!.user.id, duelSecondUserMessageLR!!.user.name)
+            users.update(secondUser.win(5))
+            users.save()
+            /*event.reply(
+                twitchClient.chat,
+                " PogT SHTO ничья, всем +1 очко YEP"
+            )*/
+            twitchClient.chat.sendMessage(
+                "lady_rockycat",
+                " PogT SHTO ничья, всем +5 очков YEP"
+            )
+            logger.info("Duel: clean duel 6")
+            duelFirstUserMessageLR = null
+            duelSecondUserMessageLR = null
+            duelIsStartedLR = false
+            return
+        }
+        val winner: ChannelMessageEvent?
+        val loser: ChannelMessageEvent?
+        if (rnd == 0) {
+            winner = duelFirstUserMessageLR!!
+            loser = duelSecondUserMessageLR!!
+        } else {
+            winner = duelSecondUserMessageLR!!
+            loser = duelFirstUserMessageLR!!
+        }
+        val winnerUser: User = users.getByIdOrCreate(winner.user.id, winner.user.name)
+        users.update(winnerUser.win())
+        val loserUser: User = users.getByIdOrCreate(loser.user.id, loser.user.name)
+        users.update(loserUser.lose())
+        users.save()
+        if (loser.permissions.contains(CommandPermission.MODERATOR) || loser.permissions.contains(CommandPermission.BROADCASTER)) {
+            /*event.reply(
+                twitchClient.chat,
+                "${winner.user.name} ${winnerUser.stats} EZ победил модератора Jokerge forsenLaughingAtYou ${loser.user.name} ${loserUser.stats} и отправил его модерировать чат NuAHule"
+            )*/
+            twitchClient.chat.sendMessage(
+                "lady_rockycat",
+                "${winner.user.name} ${winnerUser.stats} EZ победил модера Jokerge forsenLaughingAtYou ${loser.user.name} ${loserUser.stats} и отправил его чистить чат Modge"
+            )
+            logger.info("Duel: clean duel 6")
+            duelFirstUserMessageLR = null
+            duelSecondUserMessageLR = null
+            duelIsStartedLR = false
+        } else {
+            /*event.reply(
+                twitchClient.chat,
+                "${winner.user.name} ${winnerUser.stats} EZ победил forsenLaughingAtYou ${loser.user.name} ${loserUser.stats} и отправил его отдыхать на 10 минут SadgeCry Timeout"
+            )*/
+            twitchClient.chat.sendMessage(
+                "lady_rockycat",
+                "${winner.user.name} ${winnerUser.stats} EZ победил forsenLaughingAtYou ${loser.user.name} ${loserUser.stats} и отправил его отдыхать на 10 минут SadgeCry Timeout"
+            )
+            logger.info("Duel: clean duel 6")
+            duelFirstUserMessageLR = null
+            duelSecondUserMessageLR = null
+            duelIsStartedLR = false
+            delay(5000)
+            helixClient.banUser(
+                staregeBotOAuth2Credential.accessToken,
+                broadcasterIdLR,
+                moderatorId,
+                BanUserInput()
+                    .withUserId(loser.user.id)
+                    .withDuration(600)
+                    .withReason("duel with ${winner.user.name}")
+            ).execute()
+        }
+    } catch (e: Throwable) {
+        logger.info("Duel: clean duel 7")
+        duelFirstUserMessageLR = null
+        duelSecondUserMessageLR = null
+        duelIsStartedLR = false
+        logger.error("Failed assignDuel: ", e)
+    }
+}
+
+var lastDuelStatsCommandLR: Long? = null
+private fun duelStatsCommandLR(event: ChannelMessageEvent) {
+    logger.info("duelStatsCommand")
+    try {
+        if (lastDuelStatsCommandLR != null) {
+            val diff = System.currentTimeMillis() - lastDuelStatsCommandLR!!
+            if (diff < 60000) return
+        }
+        lastDuelStatsCommandLR = System.currentTimeMillis()
+        event.reply(
+            twitchClient.chat,
+            "Top 1 wins EZ : ${users.getMaxWinsUser().userName} ${users.getMaxWinsUser().stats}, " +
+                    "Top 1 loses Jokerge : ${users.getMaxLosesUser().userName} ${users.getMaxLosesUser().stats}"
+        )
+    } catch (e: Throwable) {
+        logger.error("Failed duelStatsCommand: ", e)
+    }
 }

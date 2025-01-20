@@ -1,0 +1,3 @@
+# Ensure all dart files use LF.
+text=auto
+*.kt eol=lf
