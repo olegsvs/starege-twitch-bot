@@ -2,8 +2,6 @@ import com.github.kotlintelegrambot.bot
 import com.github.kotlintelegrambot.dispatch
 import com.github.kotlintelegrambot.dispatcher.command
 import com.github.kotlintelegrambot.entities.ChatId
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import com.github.philippheuer.credentialmanager.domain.OAuth2Credential
 import com.github.philippheuer.events4j.simple.SimpleEventHandler
 import com.github.twitch4j.TwitchClient
@@ -31,9 +29,12 @@ import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import java.sql.DriverManager
 import java.time.Duration
 import java.util.*
 
@@ -69,7 +70,6 @@ const val testDefaultRefreshRateTokensTimeMillis: Long = 10800 * 1000 // 3h
 
 private val gsonPretty: Gson = GsonBuilder().setPrettyPrinting().create()
 val commands = Commands.init()
-val users = Users.init()
 
 val staregeBotOAuth2Credential = OAuth2Credential("twitch", staregeBotAccessToken)
 val twitchChannelOAuth2Credential = OAuth2Credential("twitch", twitchChannelAccessToken)
@@ -84,6 +84,11 @@ val moderatorId = dotenv.get("MODERATOR_ID").replace("'", "")
 
 val twitchClientId = dotenv.get("TWITCH_CLIENT_ID").replace("'", "")
 val twitchClientSecret = dotenv.get("TWITCH_CLIENT_SECRET").replace("'", "")
+val MySQL_HOST = dotenv.get("MYSQL_HOST").replace("'", "")
+val MySQL_PORT = dotenv.get("MySQL_PORT").replace("'", "")
+val MySQL_USER = dotenv.get("MySQL_USER").replace("'", "")
+val MySQL_PASSWORD = dotenv.get("MySQL_PASSWORD").replace("'", "")
+
 
 val helixClient: TwitchHelix = TwitchHelixBuilder.builder()
     .withClientId(twitchClientId)
@@ -163,6 +168,25 @@ private fun isTgAdmin(callerId: Long): Boolean {
 
 val chatMessages: MutableList<ChannelMessageEvent> = mutableListOf()
 
+data class DatabaseCommand(
+    val command: String,
+    var text: String,
+    var delaySeconds: Int,
+    val isEnabled: Boolean,
+) {}
+
+val databaseCommands: MutableList<DatabaseCommand> = mutableListOf()
+val conn =
+    DriverManager.getConnection("jdbc:mysql://${MySQL_HOST}:${MySQL_PORT}/twitch_starege_bot?user=${MySQL_USER}&password=${MySQL_PASSWORD}");
+
+val users = Users.init(
+    MySQL_HOST,
+    MySQL_PORT,
+    MySQL_PASSWORD,
+    MySQL_USER
+)
+
+
 @OptIn(DelicateCoroutinesApi::class)
 fun main(args: Array<String>) {
     logger.info("Bot started")
@@ -172,7 +196,22 @@ fun main(args: Array<String>) {
             refreshTokensTask()
         }
     }, testDefaultRefreshRateTokensTimeMillis, testDefaultRefreshRateTokensTimeMillis)
+
+    val stmt = conn.createStatement();
+    val rs = stmt.executeQuery("SELECT * from text_commands");
+    while (rs.next()) {
+        databaseCommands.add(
+            DatabaseCommand(
+                command = rs.getString(2),
+                text = rs.getString(3),
+                delaySeconds = rs.getInt(4),
+                isEnabled = rs.getBoolean(5),
+            )
+        )
+    }
+
     twitchClient.chat.joinChannel("c_a_k_e")
+
     twitchClient.chat.joinChannel("lady_rockycat")
     twitchClient.eventManager.onEvent(ChannelMessageEvent::class.java) { event ->
         chatMessages.add(event)
@@ -259,7 +298,9 @@ fun main(args: Array<String>) {
                             val outcomes: MutableList<com.github.twitch4j.eventsub.domain.PredictionOutcome> =
                                 mutableListOf()
                             for (name in namesOutcomes) {
-                                outcomes.add(com.github.twitch4j.eventsub.domain.PredictionOutcome().withTitle(name.trim()))
+                                outcomes.add(
+                                    com.github.twitch4j.eventsub.domain.PredictionOutcome().withTitle(name.trim())
+                                )
                             }
                             helixClient.createPrediction(
                                 twitchChannelOAuth2Credential.accessToken, Prediction()
@@ -310,24 +351,23 @@ fun main(args: Array<String>) {
                     }
                 }
             }
-            if (event.message.equals("!stesttelegram") || event.message.startsWith("!stesttelegram ")) {
-                sendTelegram("send promo $rewardDodoTitle to user: ${event.user.name}")
-            }
             if (event.message.equals("!fight") || event.message.startsWith("!fight ")) {
                 GlobalScope.launch {
                     startDuelCommand(event)
                 }
             }
-            if (event.message.equals("!yandex") || event.message.startsWith("!yandex ")) {
-                try {
-                    twitchClient.chat.sendMessage(
-                        "c_a_k_e",
-                        "Чудесные истории, которые вам надо увидеть! Переходи по ссылке и заряжайся новогодним настроением вместе с Яндекс Про: https://pro.yandex/istorii"
-                    )
-                } catch (e: Throwable) {
-                    logger.error("Failed call yandex script:", e)
+
+            databaseCommands.firstOrNull { (event.message.equals("!${it.command}") || event.message.startsWith("!${it.command} ")) && it.isEnabled }
+                ?.let {
+                    try {
+                        twitchClient.chat.sendMessage(
+                            "c_a_k_e",
+                            it.text
+                        )
+                    } catch (e: Throwable) {
+                        logger.error("Failed call ${it.command} command:", e)
+                    }
                 }
-            }
             if (event.message.equals("!gof") || event.message.startsWith("!gof ")) {
                 GlobalScope.launch {
                     assignDuelCommand(event)
@@ -339,12 +379,6 @@ fun main(args: Array<String>) {
 
             if (event.message.startsWith("!senable ")) {
                 setEnabledCommand(event, true)
-            }
-            if (event.message.equals("!saddtestreward") || event.message.startsWith("!saddtestreward ")) {
-                addTestRewardCommand(event)
-            }
-            if (event.message.equals("!srmtestreward") || event.message.startsWith("!srmtestreward ")) {
-                deleteTestRewardCommand(event)
             }
             if (event.message.equals("!fstats") || event.message.startsWith("!fstats ")) {
                 duelStatsCommand(event)
@@ -939,7 +973,6 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
             val secondUser: User =
                 users.getByIdOrCreate(duelSecondUserMessage!!.user.id, duelSecondUserMessage!!.user.name)
             users.update(secondUser.win(5))
-            users.save()
             /*event.reply(
                 twitchClient.chat,
                 " PogT SHTO ничья, всем +1 очко YEP"
@@ -967,7 +1000,6 @@ private suspend fun assignDuelCommand(event: ChannelMessageEvent) {
         users.update(winnerUser.win())
         val loserUser: User = users.getByIdOrCreate(loser.user.id, loser.user.name)
         users.update(loserUser.lose())
-        users.save()
         if (loser.permissions.contains(CommandPermission.MODERATOR) || loser.permissions.contains(CommandPermission.BROADCASTER)) {
             /*event.reply(
                 twitchClient.chat,
@@ -1152,7 +1184,6 @@ private suspend fun assignDuelCommandLR(event: ChannelMessageEvent) {
             val secondUser: User =
                 users.getByIdOrCreate(duelSecondUserMessageLR!!.user.id, duelSecondUserMessageLR!!.user.name)
             users.update(secondUser.win(5))
-            users.save()
             /*event.reply(
                 twitchClient.chat,
                 " PogT SHTO ничья, всем +1 очко YEP"
@@ -1180,7 +1211,6 @@ private suspend fun assignDuelCommandLR(event: ChannelMessageEvent) {
         users.update(winnerUser.win())
         val loserUser: User = users.getByIdOrCreate(loser.user.id, loser.user.name)
         users.update(loserUser.lose())
-        users.save()
         if (loser.permissions.contains(CommandPermission.MODERATOR) || loser.permissions.contains(CommandPermission.BROADCASTER)) {
             /*event.reply(
                 twitchClient.chat,

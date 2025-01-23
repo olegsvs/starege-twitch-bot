@@ -30,6 +30,9 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("io.github.kotlin-telegram-bot.kotlin-telegram-bot:telegram:6.1.0")
     implementation(kotlin("stdlib-jdk8"))
+    implementation("mysql:mysql-connector-java:8.0.33")
+    implementation("org.jetbrains.exposed:exposed-core:0.48.0")
+    implementation("org.jetbrains.exposed:exposed-jdbc:0.48.0")
 }
 
 tasks.test {
